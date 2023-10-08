@@ -4,7 +4,6 @@ import {
   ClientProxyFactory,
   Transport,
 } from '@nestjs/microservices';
-import * as process from 'process';
 
 @Injectable()
 export class RabbitmqService {
