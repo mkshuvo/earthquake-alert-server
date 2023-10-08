@@ -14,7 +14,7 @@ export class EarthquakeService {
     @InjectModel(Earthquake.name)
     private earthquakeModel: Model<EarthquakeDocument>,
   ) {
-    this.initRabbitMQ().then((r) => console.log(r));
+    this.initRabbitMQ();
   }
 
   private async initRabbitMQ() {
