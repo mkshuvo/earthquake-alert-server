@@ -22,6 +22,6 @@ The Earthquake Alert System, built with NestJS, is a project in progress aimed a
 ## Installation
 
 1. Clone the repository:
-
+2. Run the following to start
    ```bash
-   git clone https://github.com/your-username/earthquake-alert-system.git
+   docker compose up
