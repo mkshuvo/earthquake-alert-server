@@ -1,0 +1,50 @@
+import { Injectable } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import * as amqp from 'amqplib';
+import axios from 'axios';
+import { Earthquake, EarthquakeDocument } from './schemas/earthquake.schema';
+import { Cron, CronExpression } from '@nestjs/schedule';
+
+@Injectable()
+export class EarthquakeService {
+  private channel: amqp.Channel;
+
+  constructor(
+    @InjectModel(Earthquake.name) private earthquakeModel: Model<EarthquakeDocument>,
+  ) {
+    this.initRabbitMQ();
+  }
+
+  private async initRabbitMQ() {
+    const connection = await amqp.connect('amqp://localhost');
+    this.channel = await connection.createChannel();
+    this.channel.assertQueue('earthquake');
+  }
+
+  @Cron(CronExpression.EVERY_SECOND)
+  async fetchEarthquakeData() {
+    try {
+      const response = await axios.get('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson');
+      const earthquakeData = response.data.features.slice(0, 10);
+      await this.saveEarthquakeData(earthquakeData);
+      await this.broadcastEarthquakeData(earthquakeData);
+    } catch (error) {
+      console.error('Error fetching earthquake data:', error.message);
+    }
+  }
+
+  async saveEarthquakeData(data: any[]) {
+    for (const earthquake of data) {
+      const existingRecord = await this.earthquakeModel.findOne({ id: earthquake.id });
+      if (!existingRecord) {
+        const newEarthquake = new this.earthquakeModel(earthquake);
+        await newEarthquake.save();
+      }
+    }
+  }
+
+  async broadcastEarthquakeData(data: any[]) {
+    this.channel.sendToQueue('earthquake', Buffer.from(JSON.stringify({ type: 'EarthquakeData', data })));
+  }
+}

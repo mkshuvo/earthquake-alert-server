@@ -1,0 +1,47 @@
+version: '3.8'
+services:
+  app:
+    container_name: ea-worker
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "6000:6000"
+    depends_on:
+      - mongo
+      - rabbitmq
+    networks:
+      - earthquake_network
+    volumes:
+      - .:/app
+
+  mongo:
+    container_name: ea-mongodb
+    image: "mongo:latest"
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: root
+    networks:
+      - earthquake_network
+    volumes:
+      - ./mongo_data:/data/db
+
+  rabbitmq:
+    container_name: ea-rabbitmq
+    image: "rabbitmq:management"
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: rabbit
+      RABBITMQ_DEFAULT_PASS: rabbit
+    networks:
+      - earthquake_network
+    volumes:
+      - ./rabbitmq_data:/var/lib/rabbitmq
+
+networks:
+  earthquake_network:
+    driver: bridge
