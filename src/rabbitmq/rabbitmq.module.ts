@@ -10,7 +10,7 @@ import { RabbitmqService } from './rabbitmq.service';
         transport: Transport.RMQ,
         options: {
           urls: [process.env.RABBITMQ_URL],
-          queue: 'nestjs_queue',
+          queue: 'earthquake_queue',
           queueOptions: {
             durable: false,
           },
