@@ -12,7 +12,7 @@ import { RabbitmqService } from './rabbitmq.service';
           urls: [process.env.RABBITMQ_URL],
           queue: 'earthquake_queue',
           queueOptions: {
-            durable: false,
+            durable: true,
           },
         },
       },

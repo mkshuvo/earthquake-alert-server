@@ -31,6 +31,7 @@ export class EarthquakeService {
       );
       const earthquakeData = response.data.features.slice(0, 10);
       await this.saveEarthquakeData(earthquakeData);
+      // await this.broadcastEarthquakeData(earthquakeData);
     } catch (error) {
       console.error('Error fetching earthquake data:', error.message);
     }
