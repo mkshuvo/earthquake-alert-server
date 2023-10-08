@@ -11,21 +11,24 @@ export class EarthquakeService {
   private channel: amqp.Channel;
 
   constructor(
-    @InjectModel(Earthquake.name) private earthquakeModel: Model<EarthquakeDocument>,
+    @InjectModel(Earthquake.name)
+    private earthquakeModel: Model<EarthquakeDocument>,
   ) {
-    this.initRabbitMQ();
+    this.initRabbitMQ().then((r) => console.log(r));
   }
 
   private async initRabbitMQ() {
-    const connection = await amqp.connect('amqp://localhost');
+    const connection = await amqp.connect(process.env.RABBITMQ_URL);
     this.channel = await connection.createChannel();
-    this.channel.assertQueue('earthquake');
+    await this.channel.assertQueue('earthquake_queue');
   }
 
   @Cron(CronExpression.EVERY_SECOND)
   async fetchEarthquakeData() {
     try {
-      const response = await axios.get('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson');
+      const response = await axios.get(
+        'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson',
+      );
       const earthquakeData = response.data.features.slice(0, 10);
       await this.saveEarthquakeData(earthquakeData);
       await this.broadcastEarthquakeData(earthquakeData);
@@ -36,7 +39,9 @@ export class EarthquakeService {
 
   async saveEarthquakeData(data: any[]) {
     for (const earthquake of data) {
-      const existingRecord = await this.earthquakeModel.findOne({ id: earthquake.id });
+      const existingRecord = await this.earthquakeModel.findOne({
+        id: earthquake.id,
+      });
       if (!existingRecord) {
         const newEarthquake = new this.earthquakeModel(earthquake);
         await newEarthquake.save();
@@ -45,6 +50,9 @@ export class EarthquakeService {
   }
 
   async broadcastEarthquakeData(data: any[]) {
-    this.channel.sendToQueue('earthquake', Buffer.from(JSON.stringify({ type: 'EarthquakeData', data })));
+    this.channel.sendToQueue(
+      'earthquake_queue',
+      Buffer.from(JSON.stringify({ type: 'EarthquakeData', data })),
+    );
   }
 }

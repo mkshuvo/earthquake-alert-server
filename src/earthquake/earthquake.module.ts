@@ -10,9 +10,11 @@ import { ScheduleModule } from '@nestjs/schedule';
 @Module({
   imports: [
     ScheduleModule.forRoot(),
-    MongooseModule.forFeature([{ name: 'Earthquake', schema: EarthquakeSchema }]),
+    MongooseModule.forFeature([
+      { name: 'Earthquake', schema: EarthquakeSchema },
+    ]),
   ],
   controllers: [EarthquakeController],
-  providers: [EarthquakeService,],
+  providers: [EarthquakeService],
 })
 export class EarthquakeModule {}

@@ -1,6 +1,5 @@
-version: '3.8'
 services:
-  app:
+  app:  # This is the service name for the Nest.js application
     container_name: ea-worker
     build:
       context: .
@@ -14,10 +13,19 @@ services:
       - earthquake_network
     volumes:
       - .:/app
+    environment:
+      RABBITMQ_URL: "amqp://rabbit:rabbit@rabbitmq:5672/"
+      MONGO_USERNAME: root
+      MONGO_PASSWORD: root
+      MONGO_HOST: mongo
+      MONGO_PORT: 27017
+      MONGO_DB: earthquake_db  # Specify your desired database name
+      MONGO_URL: "mongodb://root:root@localhost:27017/earthquake_db"
+      MONGO_CLOUD_URL: "mongodb+srv://admin:iamshuvo123@earthquake.a0xu3p0.mongodb.net/?retryWrites=true&w=majority"
 
-  mongo:
+  mongo:  # This is the service name for MongoDB
     container_name: ea-mongodb
-    image: "mongo:latest"
+    image: "mongo:7.0.2"
     ports:
       - "27017:27017"
     environment:
@@ -30,7 +38,7 @@ services:
 
   rabbitmq:
     container_name: ea-rabbitmq
-    image: "rabbitmq:management"
+    image: "rabbitmq:3.11.10-management"
     ports:
       - "5672:5672"
       - "15672:15672"
