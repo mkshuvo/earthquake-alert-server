@@ -1,6 +1,6 @@
 # Earthquake Alert System
 
-![Earthquake Alert System](Earthquake_Alert_System.png)
+![Earthquake Alert System](https://github.com/mkshuvo/earthquake-alert-server/blob/0b1d888f3545f2d89715ca40fc44c5da1108bc86/Earthquake_Alert_System.jpeg?raw=true)
 
 ## Overview
 
