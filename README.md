@@ -17,7 +17,6 @@ The Earthquake Alert System, built with NestJS, is a project in progress aimed a
 - **NestJS:** A progressive Node.js framework for building efficient and scalable server-side applications.
 - **MongoDB:** A NoSQL database for storing earthquake data.
 - **RabbitMQ:** A message broker used for real-time event broadcasting.
-- **HTML, CSS, and JavaScript:** Frontend components for user interaction.
 
 ## Installation
 
