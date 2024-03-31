@@ -5,6 +5,7 @@ import * as amqp from 'amqplib';
 import axios from 'axios';
 import { Earthquake, EarthquakeDocument } from './schemas/earthquake.schema';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { json } from 'stream/consumers';
 
 @Injectable()
 export class EarthquakeService {
@@ -46,7 +47,7 @@ export class EarthquakeService {
         console.log(`New Earthquake Found: ${earthquake.id}`);
         const newEarthquake = new this.earthquakeModel(earthquake);
         await newEarthquake.save();
-        await this.broadcastEarthquakeData(earthquake);
+        await this.broadcastEarthquakeData([earthquake]);
       }
     }
   }

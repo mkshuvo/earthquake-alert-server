@@ -1,5 +1,5 @@
 services:
-  app:  # This is the service name for the Nest.js application
+  app: 
     container_name: ea-worker
     build:
       context: .
@@ -20,10 +20,10 @@ services:
       MONGO_HOST: mongo
       MONGO_PORT: 27017
       MONGO_DB: earthquake_db  # Specify your desired database name
-      MONGO_URL: "mongodb://root:root@localhost:27017/earthquake_db"
+      MONGO_URL: "mongodb://root:root@mongo:27017/earthquake_db"
       MONGO_CLOUD_URL: "mongodb+srv://admin:iamshuvo123@earthquake.a0xu3p0.mongodb.net/?retryWrites=true&w=majority"
 
-  mongo:  # This is the service name for MongoDB
+  mongo:  
     container_name: ea-mongodb
     image: "mongo:7.0.2"
     ports:
@@ -52,4 +52,4 @@ services:
 
 networks:
   earthquake_network:
-    driver: bridge
+    external: true
