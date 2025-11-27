@@ -1,20 +1,20 @@
-// earthquake/earthquake.module.ts
-
 import { Module } from '@nestjs/common';
-import { EarthquakeService } from './earthquake.service';
-import { EarthquakeController } from './earthquake.controller';
 import { MongooseModule } from '@nestjs/mongoose';
 import { EarthquakeSchema } from './schemas/earthquake.schema';
-import { ScheduleModule } from '@nestjs/schedule';
+import { EarthquakeService } from './earthquake.service';
+import { EarthquakeController } from './earthquake.controller';
+import { EarthquakeGateway } from './gateways/earthquake.gateway';
+import { CommonModule } from '../common/common.module';
 
 @Module({
   imports: [
-    ScheduleModule.forRoot(),
     MongooseModule.forFeature([
       { name: 'Earthquake', schema: EarthquakeSchema },
     ]),
+    CommonModule,
   ],
   controllers: [EarthquakeController],
-  providers: [EarthquakeService],
+  providers: [EarthquakeService, EarthquakeGateway],
+  exports: [EarthquakeService, EarthquakeGateway],
 })
-export class EarthquakeModule {}
+export class EarthquakeModule { }

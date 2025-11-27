@@ -1,23 +1,29 @@
 import { Module } from '@nestjs/common';
 import { ClientsModule, Transport } from '@nestjs/microservices';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { RabbitmqService } from './rabbitmq.service';
 
 @Module({
   imports: [
-    ClientsModule.register([
+    ClientsModule.registerAsync([
       {
         name: 'RABBITMQ_SERVICE',
-        transport: Transport.RMQ,
-        options: {
-          urls: [process.env.RABBITMQ_URL],
-          queue: 'earthquake_queue',
-          queueOptions: {
-            durable: true,
+        imports: [ConfigModule],
+        useFactory: async (configService: ConfigService) => ({
+          transport: Transport.RMQ,
+          options: {
+            urls: [configService.get<string>('app.rabbitmq.url', 'amqp://localhost:5672')],
+            queue: configService.get<string>('app.rabbitmq.queue', 'earthquake_queue'),
+            queueOptions: {
+              durable: true,
+            },
           },
-        },
+        }),
+        inject: [ConfigService],
       },
     ]),
   ],
   providers: [RabbitmqService],
+  exports: [RabbitmqService],
 })
 export class RabbitmqModule {}
