@@ -5,21 +5,23 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "6000:6000"
+      - "8080:6000"
     depends_on:
       - mongo
       - rabbitmq
+      - mqtt
     networks:
       - earthquake_network
     volumes:
       - .:/app
     environment:
       RABBITMQ_URL: "amqp://rabbit:rabbit@rabbitmq:5672/"
+      MQTT_BROKER_URL: "mqtt://mqtt:1883"
       MONGO_USERNAME: root
       MONGO_PASSWORD: root
       MONGO_HOST: mongo
       MONGO_PORT: 27017
-      MONGO_DB: earthquake_db  # Specify your desired database name
+      MONGO_DB: earthquake_db
       MONGO_URL: "mongodb://root:root@mongo:27017/earthquake_db"
       MONGODB_URI: "mongodb://root:root@mongo:27017/earthquake_db?authSource=admin"
       MONGO_CLOUD_URL: "mongodb+srv://admin:iamshuvo123@earthquake.a0xu3p0.mongodb.net/?retryWrites=true&w=majority"
@@ -50,6 +52,19 @@ services:
       - earthquake_network
     volumes:
       - ./rabbitmq_data:/var/lib/rabbitmq
+
+  mqtt:
+    container_name: ea-mqtt
+    image: "eclipse-mosquitto:2.0"
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    networks:
+      - earthquake_network
+    volumes:
+      - ./mqtt_data:/mosquitto/data
+      - ./mqtt_logs:/mosquitto/log
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
 
 networks:
   earthquake_network:

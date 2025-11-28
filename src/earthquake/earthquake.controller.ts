@@ -2,7 +2,7 @@ import { Controller, Get, Query, ValidationPipe, HttpCode, HttpStatus } from '@n
 import { EarthquakeService } from './earthquake.service';
 import { EarthquakeQueryDto } from './dto/earthquake.dto';
 
-@Controller('api/earthquakes')
+@Controller('earthquakes')
 export class EarthquakeController {
   constructor(private readonly earthquakeService: EarthquakeService) {}
 
