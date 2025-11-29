@@ -5,7 +5,7 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8080:6000"
+      - "51763:6000"
     depends_on:
       - mongo
       - rabbitmq
@@ -16,7 +16,7 @@ services:
       - .:/app
     environment:
       RABBITMQ_URL: "amqp://rabbit:rabbit@rabbitmq:5672/"
-      MQTT_BROKER_URL: "mqtt://mqtt:1883"
+      MQTT_BROKER_URL: "mqtt://emqx:1883"
       MONGO_USERNAME: root
       MONGO_PASSWORD: root
       MONGO_HOST: mongo
@@ -30,7 +30,7 @@ services:
     container_name: ea-mongodb
     image: "mongo:7.0.2"
     ports:
-      - "27017:27017"
+      - "43982:27017"
     environment:
       MONGO_INITDB_ROOT_USERNAME: root
       MONGO_INITDB_ROOT_PASSWORD: root
@@ -43,8 +43,8 @@ services:
     container_name: ea-rabbitmq
     image: "rabbitmq:3.11.10-management"
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "42107:5672"
+      - "49876:15672"
     environment:
       RABBITMQ_DEFAULT_USER: rabbit
       RABBITMQ_DEFAULT_PASS: rabbit
@@ -54,17 +54,25 @@ services:
       - ./rabbitmq_data:/var/lib/rabbitmq
 
   mqtt:
-    container_name: ea-mqtt
-    image: "eclipse-mosquitto:2.0"
+    container_name: ea-emqx
+    image: "emqx/emqx:5.0.0"
     ports:
-      - "1883:1883"
-      - "9001:9001"
+      - "45329:1883"      # MQTT (internal)
+      - "47754:8883"      # MQTT TLS (external)
+      - "8083:8083"       # WebSocket
+      - "8084:8084"       # WebSocket Secure
+      - "18083:18083"     # Dashboard
+    environment:
+      EMQX_NAME: emqx
+      EMQX_HOST: emqx
+      EMQX_NODE__COOKIE: emqx_secret_cookie
     networks:
       - earthquake_network
     volumes:
-      - ./mqtt_data:/mosquitto/data
-      - ./mqtt_logs:/mosquitto/log
-      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
+      # Data persistence
+      - ./emqx_data:/opt/emqx/data
+      # Logs
+      - ./emqx_logs:/opt/emqx/log
 
 networks:
   earthquake_network:

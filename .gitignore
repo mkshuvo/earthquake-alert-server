@@ -3,7 +3,13 @@
 /node_modules
 /mongo_data
 /rabbitmq_data
-# Logs
+/emqx_data
+/emqx_logs
+
+# EMQX runtime files
+.emqx/
+*.emqx
+
 logs
 *.log
 npm-debug.log*
@@ -34,3 +40,12 @@ lerna-debug.log*
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
+
+# Auto-generated test documentation
+TEST_RESULTS.md
+TESTING_COMPLETE_SUMMARY.md
+COMPLETE_FEATURES_AND_TESTING_PLAN.md
+TEST_RESULTS_*.md
+
+# Generated reports
+/test-reports

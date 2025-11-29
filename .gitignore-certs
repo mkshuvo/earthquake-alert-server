@@ -1,0 +1,24 @@
+# Certificates and Private Keys (SENSITIVE - DO NOT COMMIT)
+certs/
+!certs/.gitkeep
+
+# EMQX Data and Logs
+emqx_data/
+emqx_logs/
+
+# Temporary files
+*.csr
+*.srl
+*.pem.bak
+
+# Environment files with secrets
+.env.local
+.env.prod
+.env.*.local
+
+# Node modules
+node_modules/
+
+# Docker volumes
+mongo_data/
+rabbitmq_data/

@@ -2,7 +2,7 @@ import { registerAs } from '@nestjs/config';
 
 export default registerAs('app', () => ({
   port: parseInt(process.env.PORT || '6000', 10),
-  corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  corsOrigin: process.env.CORS_ORIGIN || ['http://localhost:3000', 'http://localhost:8085', 'http://localhost:3001', 'http://127.0.0.1:8085', 'http://127.0.0.1:3001'],
   
   // Database
   mongoUri: process.env.MONGODB_URI || 'mongodb://localhost:27017/earthquake-db',
