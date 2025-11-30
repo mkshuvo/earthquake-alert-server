@@ -6,8 +6,11 @@ COPY package*.json ./
 
 RUN npm install
 
+COPY .env* ./
 COPY . .
 
-EXPOSE 5000
+RUN npm run build
 
-CMD [ "npm", "run", "start:dev" ]
+EXPOSE 6000
+
+CMD [ "npm", "run", "start:prod" ]

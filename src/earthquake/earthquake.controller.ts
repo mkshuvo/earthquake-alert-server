@@ -26,7 +26,11 @@ export class EarthquakeController {
   @Get('fetch')
   @HttpCode(HttpStatus.OK)
   async triggerManualFetch() {
-    await this.earthquakeService.fetchEarthquakeData();
-    return { message: 'Manual fetch triggered successfully' };
+    const newEarthquakes = await this.earthquakeService.fetchAndProcess('all_hour');
+    return { 
+        message: 'Manual fetch triggered successfully',
+        count: newEarthquakes.length,
+        newEarthquakes: newEarthquakes.map(e => e.id)
+    };
   }
 }

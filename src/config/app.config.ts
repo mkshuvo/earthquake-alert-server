@@ -7,13 +7,12 @@ export default registerAs('app', () => ({
   // Database
   mongoUri: process.env.MONGODB_URI || 'mongodb://localhost:27017/earthquake-db',
   
-  // RabbitMQ
-  rabbitmq: {
-    url: process.env.RABBITMQ_URL || 'amqp://localhost:5672',
-    exchange: process.env.RABBITMQ_EXCHANGE || 'earthquake_exchange',
-    queue: process.env.RABBITMQ_QUEUE || 'earthquake_queue',
+  // Redis
+  redis: {
+    host: process.env.REDIS_HOST || 'localhost',
+    port: parseInt(process.env.REDIS_PORT || '6379', 10),
   },
-  
+
   // MQTT
   mqtt: {
     brokerUrl: process.env.MQTT_BROKER_URL || 'mqtt://localhost:1883',

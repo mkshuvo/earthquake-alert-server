@@ -2,9 +2,8 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ConfigService } from '@nestjs/config';
 import { Model } from 'mongoose';
-import { Cron } from '@nestjs/schedule';
-import * as amqp from 'amqplib';
 import axios, { AxiosResponse } from 'axios';
+import Redis from 'ioredis';
 import { Earthquake, EarthquakeDocument, EarthquakeEvent } from './schemas/earthquake.schema';
 import { EarthquakeGateway } from './gateways/earthquake.gateway';
 import { MqttService } from '../common/services/mqtt.service';
@@ -17,7 +16,7 @@ interface USGSFeature {
     place: string;
     time: number;
     updated: number;
-    tz: string | null;
+    tz: number;
     url: string;
     detail: string;
     felt: number | null;
@@ -49,26 +48,17 @@ interface USGSFeature {
 
 interface USGSResponse {
   type: string;
-  metadata: {
-    generated: number;
-    url: string;
-    title: string;
-    status: number;
-    api: string;
-    count: number;
-  };
+  metadata: any;
   features: USGSFeature[];
+  bbox: number[];
 }
 
 @Injectable()
 export class EarthquakeService implements OnModuleInit {
-  private channel: amqp.Channel | null = null;
+  private redis: Redis;
   private readonly logger = new Logger('EarthquakeService');
   private lastFetchTime: Date = new Date();
-  private readonly apiUrl: string;
-  private readonly fetchInterval: number;
   private readonly minMagnitudeAlert: number;
-  private readonly maxEarthquakesPerFetch: number;
 
   constructor(
     @InjectModel(Earthquake.name)
@@ -77,76 +67,59 @@ export class EarthquakeService implements OnModuleInit {
     private earthquakeGateway: EarthquakeGateway,
     private mqttService: MqttService,
   ) {
-    this.apiUrl = this.configService.get<string>('app.api.usgsUrl', '');
-    this.fetchInterval = this.configService.get<number>('app.earthquake.fetchInterval', 30000);
     this.minMagnitudeAlert = this.configService.get<number>('app.earthquake.minMagnitudeAlert', 4.0);
-    this.maxEarthquakesPerFetch = this.configService.get<number>('app.earthquake.maxEarthquakesPerFetch', 10);
+    
+    // Initialize Redis
+    this.redis = new Redis({
+      host: this.configService.get<string>('app.redis.host', 'localhost'),
+      port: this.configService.get<number>('app.redis.port', 6379),
+    });
   }
 
   async onModuleInit(): Promise<void> {
-    await this.initRabbitMQ();
     this.logger.log('Earthquake service initialized');
   }
 
-  private async initRabbitMQ(): Promise<void> {
+  // Public method for Workers to call
+  async fetchAndProcess(feedType: string = 'all_hour'): Promise<EarthquakeEvent[]> {
     try {
-      const rabbitmqUrl = this.configService.get<string>('app.rabbitmq.url', '');
-      const exchange = this.configService.get<string>('app.rabbitmq.exchange', '');
-      const queue = this.configService.get<string>('app.rabbitmq.queue', '');
-
-      const connection = await amqp.connect(rabbitmqUrl);
-      this.channel = await connection.createChannel();
+      const url = `https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/${feedType}.geojson`;
+      this.logger.debug(`Fetching earthquake data from USGS API: ${url}`);
       
-      await this.channel.assertExchange(exchange, 'topic', { durable: true });
-      await this.channel.assertQueue(queue, { durable: true });
-      await this.channel.bindQueue(queue, exchange, 'earthquake.*');
-
-      this.logger.log('RabbitMQ connection established');
-    } catch (error) {
-      this.logger.error('Failed to initialize RabbitMQ:', error);
-    }
-  }
-
-  @Cron('*/30 * * * * *') // Every 30 seconds
-  async fetchEarthquakeData(): Promise<void> {
-    try {
-      this.logger.debug('Fetching earthquake data from USGS API');
-      
-      const response: AxiosResponse<USGSResponse> = await axios.get(this.apiUrl, {
+      const response: AxiosResponse<USGSResponse> = await axios.get(url, {
         timeout: 10000,
-        headers: {
-          'User-Agent': 'EarthquakeAlertSystem/1.0',
-        },
+        headers: { 'User-Agent': 'EarthquakeAlertSystem/1.0' },
       });
 
       if (response.status !== 200) {
         throw new Error(`API returned status ${response.status}`);
       }
 
-      const earthquakeData = response.data.features.slice(0, this.maxEarthquakesPerFetch);
-      await this.saveEarthquakeData(earthquakeData);
+      const earthquakeData = response.data.features;
+      const newEarthquakes = await this.saveEarthquakeData(earthquakeData);
       
       this.lastFetchTime = new Date();
-      this.logger.debug(`Processed ${earthquakeData.length} earthquake records`);
+      if (newEarthquakes.length > 0) {
+          this.logger.debug(`Processed ${earthquakeData.length} earthquake records. New: ${newEarthquakes.length}`);
+      }
       
-      // Broadcast server status
       this.earthquakeGateway.broadcastServerStatus({
         isConnected: true,
         lastUpdate: this.lastFetchTime,
       });
-      
+
+      return newEarthquakes;
     } catch (error) {
       this.logger.error('Error fetching earthquake data:', error);
-      
-      // Broadcast server status with error
       this.earthquakeGateway.broadcastServerStatus({
         isConnected: false,
         lastUpdate: this.lastFetchTime,
       });
+      throw error;
     }
   }
 
-  private async saveEarthquakeData(data: USGSFeature[]): Promise<void> {
+  private async saveEarthquakeData(data: USGSFeature[]): Promise<EarthquakeEvent[]> {
     const newEarthquakes: EarthquakeEvent[] = [];
 
     for (const earthquake of data) {
@@ -166,45 +139,47 @@ export class EarthquakeService implements OnModuleInit {
           
           await newEarthquake.save();
           
-          // Transform to EarthquakeEvent for broadcasting
+          // Transform and Cache in Redis
           const earthquakeEvent: EarthquakeEvent = this.transformToEarthquakeEvent(earthquake);
-          newEarthquakes.push(earthquakeEvent);
           
-          // Check if this earthquake needs immediate alert
-          if (earthquake.properties.mag >= this.minMagnitudeAlert) {
-            await this.processEarthquakeAlert(earthquakeEvent);
-          }
+          // 1. Add to Sorted Set (Time based)
+          await this.redis.zadd('earthquakes:recent', earthquakeEvent.timestamp.getTime(), JSON.stringify(earthquakeEvent));
+          
+          // 2. Add to Hash (ID based detail) - Optional, but good for lookup
+          await this.redis.set(`earthquakes:detail:${earthquakeEvent.id}`, JSON.stringify(earthquakeEvent), 'EX', 86400); // 24h expiry
+          
+          // Trim Redis Sorted Set to keep only last 1000
+          await this.redis.zremrangebyrank('earthquakes:recent', 0, -1001);
+
+          newEarthquakes.push(earthquakeEvent);
         }
       } catch (error) {
         this.logger.error(`Error saving earthquake ${earthquake.id}:`, error);
       }
     }
 
-    // Broadcast new earthquakes via WebSocket
+    // Broadcast new earthquakes via WebSocket (still useful for frontend)
     for (const earthquake of newEarthquakes) {
       this.earthquakeGateway.broadcastNewEarthquake(earthquake);
     }
 
-    // Broadcast to RabbitMQ if there are new earthquakes
-    if (newEarthquakes.length > 0) {
-      await this.broadcastToRabbitMQ(newEarthquakes);
-    }
+    return newEarthquakes;
   }
 
-  private transformToEarthquakeEvent(usgsData: USGSFeature): EarthquakeEvent {
+  private transformToEarthquakeEvent(feature: USGSFeature): EarthquakeEvent {
     return {
-      id: usgsData.id,
-      magnitude: usgsData.properties.mag,
+      id: feature.id,
+      magnitude: feature.properties.mag,
       location: {
-        latitude: usgsData.geometry.coordinates[1],
-        longitude: usgsData.geometry.coordinates[0],
-        place: usgsData.properties.place,
+        latitude: feature.geometry.coordinates[1],
+        longitude: feature.geometry.coordinates[0],
+        place: feature.properties.place,
       },
-      depth: usgsData.geometry.coordinates[2],
-      timestamp: new Date(usgsData.properties.time),
-      url: usgsData.properties.url,
-      alert: usgsData.properties.alert,
-      tsunami: usgsData.properties.tsunami,
+      depth: feature.geometry.coordinates[2],
+      timestamp: new Date(feature.properties.time),
+      url: feature.properties.url,
+      alert: feature.properties.alert,
+      tsunami: feature.properties.tsunami,
       processed: false,
       notificationSent: false,
       createdAt: new Date(),
@@ -212,51 +187,27 @@ export class EarthquakeService implements OnModuleInit {
     };
   }
 
-  private async processEarthquakeAlert(earthquake: EarthquakeEvent): Promise<void> {
-    try {
-      // Publish to MQTT for mobile devices
-      await this.mqttService.publishEarthquakeAlert(earthquake);
-      
-      // Mark as notification sent
-      await this.earthquakeModel.updateOne(
-        { id: earthquake.id },
-        { notificationSent: true }
-      );
-      
-      this.logger.log(`Alert sent for earthquake ${earthquake.id} (${earthquake.magnitude}M)`);
-    } catch (error) {
-      this.logger.error(`Failed to send alert for earthquake ${earthquake.id}:`, error);
-    }
-  }
-
-  private async broadcastToRabbitMQ(earthquakes: EarthquakeEvent[]): Promise<void> {
-    if (!this.channel) {
-      this.logger.warn('RabbitMQ channel not available');
-      return;
-    }
-
-    try {
-      const exchange = this.configService.get<string>('app.rabbitmq.exchange', '');
-      const message = {
-        type: 'new_earthquakes',
-        data: earthquakes,
-        timestamp: new Date(),
-      };
-
-      this.channel.publish(
-        exchange,
-        'earthquake.new',
-        Buffer.from(JSON.stringify(message)),
-        { persistent: true }
-      );
-
-      this.logger.debug(`Broadcasted ${earthquakes.length} earthquakes to RabbitMQ`);
-    } catch (error) {
-      this.logger.error('Error broadcasting to RabbitMQ:', error);
-    }
-  }
-
+  // Modified findAll to use Redis first
   async findAll(query: EarthquakeQueryDto): Promise<EarthquakeResponseDto[]> {
+    // Optimization: If query is simple (latest 100, no complex filters), use Redis
+    const isSimpleQuery = !query.location && !query.minMagnitude && !query.startDate && !query.endDate && (!query.limit || query.limit <= 100);
+
+    if (isSimpleQuery) {
+      try {
+        const limit = query.limit || 100;
+        const offset = query.offset || 0;
+        // ZREVRANGE is index based (0 is highest score/latest time)
+        const rawData = await this.redis.zrevrange('earthquakes:recent', offset, offset + limit - 1);
+        
+        if (rawData.length > 0) {
+            return rawData.map(item => JSON.parse(item));
+        }
+      } catch (e) {
+        this.logger.warn('Redis read failed, falling back to MongoDB', e);
+      }
+    }
+
+    // Fallback to MongoDB (existing logic)
     const filter: any = {};
     
     if (query.minMagnitude !== undefined) {
@@ -316,6 +267,33 @@ export class EarthquakeService implements OnModuleInit {
     }));
   }
 
+  async processEarthquakeAlert(earthquake: EarthquakeEvent): Promise<void> {
+     try {
+        // Publish to MQTT for mobile devices
+        await this.mqttService.publishEarthquakeAlert(earthquake);
+        
+        // Mark as notification sent in MongoDB
+        await this.earthquakeModel.updateOne(
+            { id: earthquake.id },
+            { notificationSent: true }
+        );
+        
+        // Update Redis if necessary (optional, but keeps consistency)
+        earthquake.notificationSent = true;
+        // Update in detail hash
+        await this.redis.set(`earthquakes:detail:${earthquake.id}`, JSON.stringify(earthquake), 'EX', 86400);
+        // Updating sorted set is harder because it's a string value. 
+        // We might skip updating sorted set for this flag as list view might not strictly need it real-time 
+        // or we can remove and add again.
+        // For performance, let's skip ZSET update for now unless critical.
+
+        this.logger.log(`Alert sent for earthquake ${earthquake.id} (${earthquake.magnitude}M)`);
+     } catch (error) {
+         this.logger.error(`Failed to process alert for ${earthquake.id}`, error);
+         throw error;
+     }
+  }
+
   async getStatistics(): Promise<any> {
     const total = await this.earthquakeModel.countDocuments();
     const last24Hours = await this.earthquakeModel.countDocuments({
@@ -337,8 +315,8 @@ export class EarthquakeService implements OnModuleInit {
 
   async getHealthCheck(): Promise<{ status: string; details: any }> {
     const details = {
-      database: 'connected',
-      rabbitmq: this.channel ? 'connected' : 'disconnected',
+      database: 'connected', // Mongoose maintains connection
+      redis: this.redis.status === 'ready' ? 'connected' : 'disconnected',
       mqtt: this.mqttService.isConnected() ? 'connected' : 'disconnected',
       lastFetch: this.lastFetchTime,
       connectedClients: this.earthquakeGateway.getConnectedClientsCount(),

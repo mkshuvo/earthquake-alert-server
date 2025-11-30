@@ -11,7 +11,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   private readonly topic: string;
 
   constructor(private configService: ConfigService) {
-    this.brokerUrl = this.configService.get<string>('app.mqtt.brokerUrl', 'mqtt://localhost:1883');
+    this.brokerUrl = this.configService.get<string>('app.mqtt.brokerUrl', 'mqtt://172.26.0.5:1883');
     this.topic = this.configService.get<string>('app.mqtt.topic', 'earthquakes/alerts');
   }
 

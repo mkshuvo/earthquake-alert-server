@@ -8,15 +8,14 @@ services:
       - "51763:6000"
     depends_on:
       - mongo
-      - rabbitmq
+      - redis
       - mqtt
     networks:
       - earthquake_network
-    volumes:
-      - .:/app
     environment:
-      RABBITMQ_URL: "amqp://rabbit:rabbit@rabbitmq:5672/"
-      MQTT_BROKER_URL: "mqtt://emqx:1883"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MQTT_BROKER_URL: "mqtt://ea-emqx:1883"
       MONGO_USERNAME: root
       MONGO_PASSWORD: root
       MONGO_HOST: mongo
@@ -25,6 +24,7 @@ services:
       MONGO_URL: "mongodb://root:root@mongo:27017/earthquake_db"
       MONGODB_URI: "mongodb://root:root@mongo:27017/earthquake_db?authSource=admin"
       MONGO_CLOUD_URL: "mongodb+srv://admin:iamshuvo123@earthquake.a0xu3p0.mongodb.net/?retryWrites=true&w=majority"
+      CORS_ORIGIN: "*"
 
   mongo:  
     container_name: ea-mongodb
@@ -39,19 +39,15 @@ services:
     volumes:
       - ./mongo_data:/data/db
 
-  rabbitmq:
-    container_name: ea-rabbitmq
-    image: "rabbitmq:3.11.10-management"
+  redis:
+    container_name: ea-redis
+    image: redis:7-alpine
     ports:
-      - "42107:5672"
-      - "49876:15672"
-    environment:
-      RABBITMQ_DEFAULT_USER: rabbit
-      RABBITMQ_DEFAULT_PASS: rabbit
+      - "6379:6379"
     networks:
       - earthquake_network
     volumes:
-      - ./rabbitmq_data:/var/lib/rabbitmq
+      - ./redis_data:/data
 
   mqtt:
     container_name: ea-emqx
