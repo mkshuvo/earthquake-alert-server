@@ -6,7 +6,7 @@ interface Properties {
   place: string;
   time: number;
   updated: number;
-  tz: string | null;
+  tz: number | null;
   url: string;
   detail: string;
   felt: number | null;

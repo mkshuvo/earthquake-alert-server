@@ -121,6 +121,7 @@ export class EarthquakeService implements OnModuleInit {
 
   private async saveEarthquakeData(data: USGSFeature[]): Promise<EarthquakeEvent[]> {
     const newEarthquakes: EarthquakeEvent[] = [];
+    const updatedEarthquakes: EarthquakeEvent[] = [];
 
     for (const earthquake of data) {
       try {
@@ -152,18 +153,44 @@ export class EarthquakeService implements OnModuleInit {
           await this.redis.zremrangebyrank('earthquakes:recent', 0, -1001);
 
           newEarthquakes.push(earthquakeEvent);
+        } else {
+          // Check for updates based on 'updated' timestamp from USGS
+          // Use optional chaining or default to 0 if undefined
+          const lastUpdate = existingRecord.properties.updated || 0;
+          const currentUpdate = earthquake.properties.updated || 0;
+
+          if (currentUpdate > lastUpdate) {
+             this.logger.log(`Updating earthquake: ${earthquake.id} (Mag: ${existingRecord.properties.mag} -> ${earthquake.properties.mag})`);
+             
+             existingRecord.properties = earthquake.properties;
+             existingRecord.geometry = earthquake.geometry;
+             await existingRecord.save();
+
+             const earthquakeEvent: EarthquakeEvent = this.transformToEarthquakeEvent(earthquake);
+             
+             // Update Redis
+             await this.redis.zadd('earthquakes:recent', earthquakeEvent.timestamp.getTime(), JSON.stringify(earthquakeEvent));
+             await this.redis.set(`earthquakes:detail:${earthquakeEvent.id}`, JSON.stringify(earthquakeEvent), 'EX', 86400);
+             
+             updatedEarthquakes.push(earthquakeEvent);
+          }
         }
       } catch (error) {
-        this.logger.error(`Error saving earthquake ${earthquake.id}:`, error);
+        this.logger.error(`Error saving/updating earthquake ${earthquake.id}:`, error);
       }
     }
 
-    // Broadcast new earthquakes via WebSocket (still useful for frontend)
+    // Broadcast new earthquakes via WebSocket
     for (const earthquake of newEarthquakes) {
       this.earthquakeGateway.broadcastNewEarthquake(earthquake);
     }
 
-    return newEarthquakes;
+    // Broadcast updated earthquakes
+    for (const earthquake of updatedEarthquakes) {
+      this.earthquakeGateway.broadcastNewEarthquake(earthquake);
+    }
+
+    return [...newEarthquakes, ...updatedEarthquakes];
   }
 
   private transformToEarthquakeEvent(feature: USGSFeature): EarthquakeEvent {
