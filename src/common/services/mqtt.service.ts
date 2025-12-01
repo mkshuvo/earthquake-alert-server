@@ -89,20 +89,28 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     }
 
     try {
+      const priority = this.getPriorityLevel(earthquake.magnitude);
+      const topic = `earthquake/alert/${priority}`;
+
       const payload = {
-        id: earthquake.id,
-        magnitude: earthquake.magnitude,
-        location: earthquake.location,
-        depth: earthquake.depth,
-        timestamp: earthquake.timestamp,
-        alert: earthquake.alert,
-        tsunami: earthquake.tsunami,
-        publishedAt: new Date(),
+        title: `🌍 Earthquake Alert - M${earthquake.magnitude}`,
+        body: `${earthquake.location.place}\nDepth: ${earthquake.depth}km`,
+        data: {
+          id: earthquake.id,
+          magnitude: earthquake.magnitude,
+          location: earthquake.location,
+          depth: earthquake.depth,
+          timestamp: earthquake.timestamp,
+          alert: earthquake.alert,
+          tsunami: earthquake.tsunami,
+          publishedAt: new Date(),
+          priority,
+        },
       };
 
       await new Promise<void>((resolve, reject) => {
         this.client!.publish(
-          this.topic,
+          topic,
           JSON.stringify(payload),
           { qos: 1, retain: false },
           (error) => {
@@ -115,11 +123,28 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         );
       });
 
-      this.logger.log(`Published earthquake alert to MQTT: ${earthquake.id}`);
+      // Also publish to the generic topic for backward compatibility or other consumers
+      await new Promise<void>((resolve) => {
+        this.client!.publish(
+          this.topic,
+          JSON.stringify(payload.data),
+          { qos: 1, retain: false },
+          () => resolve(),
+        );
+      });
+
+      this.logger.log(`Published earthquake alert to MQTT: ${topic} and ${this.topic}`);
     } catch (error) {
       this.logger.error('Failed to publish earthquake alert to MQTT:', error);
       throw error;
     }
+  }
+
+  private getPriorityLevel(magnitude: number): 'low' | 'medium' | 'high' | 'critical' {
+    if (magnitude >= 7.0) return 'critical';
+    if (magnitude >= 5.5) return 'high';
+    if (magnitude >= 4.0) return 'medium';
+    return 'low';
   }
 
   async publishHeartbeat(): Promise<void> {
