@@ -70,6 +70,19 @@ services:
       # Logs
       - ./emqx_logs:/opt/emqx/log
 
+  rabbitmq:
+    container_name: rabbitmq
+    image: rabbitmq:3-management
+    hostname: rabbitmq
+    ports:
+      - "42107:5672"
+      - "49876:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: rabbit
+      RABBITMQ_DEFAULT_PASS: rabbit
+    networks:
+      - earthquake_network
+
 networks:
   earthquake_network:
     external: true
