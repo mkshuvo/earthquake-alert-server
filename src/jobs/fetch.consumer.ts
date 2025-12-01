@@ -15,7 +15,10 @@ export class FetchConsumer extends WorkerHost {
     @InjectQueue('earthquake-alert') private alertQueue: Queue,
   ) {
     super();
-    this.minMagnitudeAlert = this.configService.get<number>('app.earthquake.minMagnitudeAlert', 4.0);
+    this.minMagnitudeAlert = this.configService.get<number>(
+      'app.earthquake.minMagnitudeAlert',
+      4.0,
+    );
   }
 
   async process(job: Job<any, any, string>): Promise<any> {
@@ -23,20 +26,23 @@ export class FetchConsumer extends WorkerHost {
     const feedType = job.data.type || 'all_hour';
 
     try {
-      const newEarthquakes = await this.earthquakeService.fetchAndProcess(feedType);
+      const newEarthquakes =
+        await this.earthquakeService.fetchAndProcess(feedType);
 
       // Check for alerts
       for (const earthquake of newEarthquakes) {
         if (earthquake.magnitude >= this.minMagnitudeAlert) {
-           this.logger.log(`Significant earthquake detected: ${earthquake.id} (${earthquake.magnitude}M). Scheduling alert.`);
-           await this.alertQueue.add('send-alert', earthquake, {
-               removeOnComplete: true,
-               attempts: 3,
-               backoff: {
-                   type: 'exponential',
-                   delay: 1000,
-               }
-           });
+          this.logger.log(
+            `Significant earthquake detected: ${earthquake.id} (${earthquake.magnitude}M). Scheduling alert.`,
+          );
+          await this.alertQueue.add('send-alert', earthquake, {
+            removeOnComplete: true,
+            attempts: 3,
+            backoff: {
+              type: 'exponential',
+              delay: 1000,
+            },
+          });
         }
       }
       return { processed: newEarthquakes.length };

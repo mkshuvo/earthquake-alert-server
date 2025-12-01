@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as mqtt from 'mqtt';
 import { EarthquakeEvent } from '../../earthquake/schemas/earthquake.schema';
@@ -11,8 +16,14 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   private readonly topic: string;
 
   constructor(private configService: ConfigService) {
-    this.brokerUrl = this.configService.get<string>('app.mqtt.brokerUrl', 'mqtt://172.26.0.5:1883');
-    this.topic = this.configService.get<string>('app.mqtt.topic', 'earthquakes/alerts');
+    this.brokerUrl = this.configService.get<string>(
+      'app.mqtt.brokerUrl',
+      'mqtt://172.26.0.5:1883',
+    );
+    this.topic = this.configService.get<string>(
+      'app.mqtt.topic',
+      'earthquakes/alerts',
+    );
   }
 
   async onModuleInit(): Promise<void> {
@@ -30,7 +41,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   private async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.client = mqtt.connect(this.brokerUrl, {
-        clientId: `earthquake-server-${Math.random().toString(16).substr(2, 8)}`,
+        clientId: `earthquake-server-${Math.random()
+          .toString(16)
+          .substr(2, 8)}`,
         clean: true,
         connectTimeout: 4000,
         username: process.env.MQTT_USERNAME,
@@ -98,7 +111,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
             } else {
               resolve();
             }
-          }
+          },
         );
       });
 
@@ -132,7 +145,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
             } else {
               resolve();
             }
-          }
+          },
         );
       });
     } catch (error) {

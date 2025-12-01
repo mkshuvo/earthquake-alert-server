@@ -5,8 +5,8 @@ import { CustomLoggerService } from './services/logger.service';
 
 @Global()
 @Module({
-    imports: [ConfigModule],
-    providers: [MqttService, CustomLoggerService],
-    exports: [MqttService, CustomLoggerService],
+  imports: [ConfigModule],
+  providers: [MqttService, CustomLoggerService],
+  exports: [MqttService, CustomLoggerService],
 })
-export class CommonModule { }
+export class CommonModule {}

@@ -38,4 +38,4 @@ import appConfig from './config/app.config';
   providers: [],
   exports: [MongooseModule],
 })
-export class AppModule { }
+export class AppModule {}

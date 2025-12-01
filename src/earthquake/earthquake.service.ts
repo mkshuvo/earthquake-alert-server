@@ -4,10 +4,17 @@ import { ConfigService } from '@nestjs/config';
 import { Model } from 'mongoose';
 import axios, { AxiosResponse } from 'axios';
 import Redis from 'ioredis';
-import { Earthquake, EarthquakeDocument, EarthquakeEvent } from './schemas/earthquake.schema';
+import {
+  Earthquake,
+  EarthquakeDocument,
+  EarthquakeEvent,
+} from './schemas/earthquake.schema';
 import { EarthquakeGateway } from './gateways/earthquake.gateway';
 import { MqttService } from '../common/services/mqtt.service';
-import { EarthquakeQueryDto, EarthquakeResponseDto } from './dto/earthquake.dto';
+import {
+  EarthquakeQueryDto,
+  EarthquakeResponseDto,
+} from './dto/earthquake.dto';
 
 interface USGSFeature {
   type: string;
@@ -67,8 +74,11 @@ export class EarthquakeService implements OnModuleInit {
     private earthquakeGateway: EarthquakeGateway,
     private mqttService: MqttService,
   ) {
-    this.minMagnitudeAlert = this.configService.get<number>('app.earthquake.minMagnitudeAlert', 4.0);
-    
+    this.minMagnitudeAlert = this.configService.get<number>(
+      'app.earthquake.minMagnitudeAlert',
+      4.0,
+    );
+
     // Initialize Redis
     this.redis = new Redis({
       host: this.configService.get<string>('app.redis.host', 'localhost'),
@@ -81,11 +91,13 @@ export class EarthquakeService implements OnModuleInit {
   }
 
   // Public method for Workers to call
-  async fetchAndProcess(feedType: string = 'all_hour'): Promise<EarthquakeEvent[]> {
+  async fetchAndProcess(
+    feedType: string = 'all_hour',
+  ): Promise<EarthquakeEvent[]> {
     try {
       const url = `https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/${feedType}.geojson`;
       this.logger.debug(`Fetching earthquake data from USGS API: ${url}`);
-      
+
       const response: AxiosResponse<USGSResponse> = await axios.get(url, {
         timeout: 10000,
         headers: { 'User-Agent': 'EarthquakeAlertSystem/1.0' },
@@ -97,12 +109,14 @@ export class EarthquakeService implements OnModuleInit {
 
       const earthquakeData = response.data.features;
       const newEarthquakes = await this.saveEarthquakeData(earthquakeData);
-      
+
       this.lastFetchTime = new Date();
       if (newEarthquakes.length > 0) {
-          this.logger.debug(`Processed ${earthquakeData.length} earthquake records. New: ${newEarthquakes.length}`);
+        this.logger.debug(
+          `Processed ${earthquakeData.length} earthquake records. New: ${newEarthquakes.length}`,
+        );
       }
-      
+
       this.earthquakeGateway.broadcastServerStatus({
         isConnected: true,
         lastUpdate: this.lastFetchTime,
@@ -119,7 +133,9 @@ export class EarthquakeService implements OnModuleInit {
     }
   }
 
-  private async saveEarthquakeData(data: USGSFeature[]): Promise<EarthquakeEvent[]> {
+  private async saveEarthquakeData(
+    data: USGSFeature[],
+  ): Promise<EarthquakeEvent[]> {
     const newEarthquakes: EarthquakeEvent[] = [];
     const updatedEarthquakes: EarthquakeEvent[] = [];
 
@@ -130,25 +146,37 @@ export class EarthquakeService implements OnModuleInit {
         });
 
         if (!existingRecord) {
-          this.logger.log(`New earthquake found: ${earthquake.id} (${earthquake.properties.mag}M at ${earthquake.properties.place})`);
-          
+          this.logger.log(
+            `New earthquake found: ${earthquake.id} (${earthquake.properties.mag}M at ${earthquake.properties.place})`,
+          );
+
           const newEarthquake = new this.earthquakeModel({
             ...earthquake,
             processed: false,
             notificationSent: false,
           });
-          
+
           await newEarthquake.save();
-          
+
           // Transform and Cache in Redis
-          const earthquakeEvent: EarthquakeEvent = this.transformToEarthquakeEvent(earthquake);
-          
+          const earthquakeEvent: EarthquakeEvent =
+            this.transformToEarthquakeEvent(earthquake);
+
           // 1. Add to Sorted Set (Time based)
-          await this.redis.zadd('earthquakes:recent', earthquakeEvent.timestamp.getTime(), JSON.stringify(earthquakeEvent));
-          
+          await this.redis.zadd(
+            'earthquakes:recent',
+            earthquakeEvent.timestamp.getTime(),
+            JSON.stringify(earthquakeEvent),
+          );
+
           // 2. Add to Hash (ID based detail) - Optional, but good for lookup
-          await this.redis.set(`earthquakes:detail:${earthquakeEvent.id}`, JSON.stringify(earthquakeEvent), 'EX', 86400); // 24h expiry
-          
+          await this.redis.set(
+            `earthquakes:detail:${earthquakeEvent.id}`,
+            JSON.stringify(earthquakeEvent),
+            'EX',
+            86400,
+          ); // 24h expiry
+
           // Trim Redis Sorted Set to keep only last 1000
           await this.redis.zremrangebyrank('earthquakes:recent', 0, -1001);
 
@@ -160,34 +188,65 @@ export class EarthquakeService implements OnModuleInit {
           const currentUpdate = earthquake.properties.updated || 0;
 
           if (currentUpdate > lastUpdate) {
-             this.logger.log(`Updating earthquake: ${earthquake.id} (Mag: ${existingRecord.properties.mag} -> ${earthquake.properties.mag})`);
-             
-             existingRecord.properties = earthquake.properties;
-             existingRecord.geometry = earthquake.geometry;
-             await existingRecord.save();
+            this.logger.log(
+              `Updating earthquake: ${earthquake.id} (Mag: ${existingRecord.properties.mag} -> ${earthquake.properties.mag})`,
+            );
 
-             const earthquakeEvent: EarthquakeEvent = this.transformToEarthquakeEvent(earthquake);
-             
-             // Update Redis
-             await this.redis.zadd('earthquakes:recent', earthquakeEvent.timestamp.getTime(), JSON.stringify(earthquakeEvent));
-             await this.redis.set(`earthquakes:detail:${earthquakeEvent.id}`, JSON.stringify(earthquakeEvent), 'EX', 86400);
-             
-             updatedEarthquakes.push(earthquakeEvent);
+            existingRecord.properties = earthquake.properties;
+            existingRecord.geometry = earthquake.geometry;
+            await existingRecord.save();
+
+            const earthquakeEvent: EarthquakeEvent =
+              this.transformToEarthquakeEvent(earthquake);
+
+            // Update Redis
+            await this.redis.zadd(
+              'earthquakes:recent',
+              earthquakeEvent.timestamp.getTime(),
+              JSON.stringify(earthquakeEvent),
+            );
+            await this.redis.set(
+              `earthquakes:detail:${earthquakeEvent.id}`,
+              JSON.stringify(earthquakeEvent),
+              'EX',
+              86400,
+            );
+
+            updatedEarthquakes.push(earthquakeEvent);
           }
         }
       } catch (error) {
-        this.logger.error(`Error saving/updating earthquake ${earthquake.id}:`, error);
+        this.logger.error(
+          `Error saving/updating earthquake ${earthquake.id}:`,
+          error,
+        );
       }
     }
 
     // Broadcast new earthquakes via WebSocket
     for (const earthquake of newEarthquakes) {
       this.earthquakeGateway.broadcastNewEarthquake(earthquake);
+      this.mqttService
+        .publishEarthquakeAlert(earthquake)
+        .catch((err) =>
+          this.logger.error(
+            `Failed to publish new earthquake ${earthquake.id} to MQTT`,
+            err,
+          ),
+        );
     }
 
     // Broadcast updated earthquakes
     for (const earthquake of updatedEarthquakes) {
       this.earthquakeGateway.broadcastNewEarthquake(earthquake);
+      this.mqttService
+        .publishEarthquakeAlert(earthquake)
+        .catch((err) =>
+          this.logger.error(
+            `Failed to publish updated earthquake ${earthquake.id} to MQTT`,
+            err,
+          ),
+        );
     }
 
     return [...newEarthquakes, ...updatedEarthquakes];
@@ -217,17 +276,26 @@ export class EarthquakeService implements OnModuleInit {
   // Modified findAll to use Redis first
   async findAll(query: EarthquakeQueryDto): Promise<EarthquakeResponseDto[]> {
     // Optimization: If query is simple (latest 100, no complex filters), use Redis
-    const isSimpleQuery = !query.location && !query.minMagnitude && !query.startDate && !query.endDate && (!query.limit || query.limit <= 100);
+    const isSimpleQuery =
+      !query.location &&
+      !query.minMagnitude &&
+      !query.startDate &&
+      !query.endDate &&
+      (!query.limit || query.limit <= 100);
 
     if (isSimpleQuery) {
       try {
         const limit = query.limit || 100;
         const offset = query.offset || 0;
         // ZREVRANGE is index based (0 is highest score/latest time)
-        const rawData = await this.redis.zrevrange('earthquakes:recent', offset, offset + limit - 1);
-        
+        const rawData = await this.redis.zrevrange(
+          'earthquakes:recent',
+          offset,
+          offset + limit - 1,
+        );
+
         if (rawData.length > 0) {
-            return rawData.map(item => JSON.parse(item));
+          return rawData.map((item) => JSON.parse(item));
         }
       } catch (e) {
         this.logger.warn('Redis read failed, falling back to MongoDB', e);
@@ -236,31 +304,43 @@ export class EarthquakeService implements OnModuleInit {
 
     // Fallback to MongoDB (existing logic)
     const filter: any = {};
-    
+
     if (query.minMagnitude !== undefined) {
-      filter['properties.mag'] = { ...filter['properties.mag'], $gte: query.minMagnitude };
+      filter['properties.mag'] = {
+        ...filter['properties.mag'],
+        $gte: query.minMagnitude,
+      };
     }
-    
+
     if (query.maxMagnitude !== undefined) {
-      filter['properties.mag'] = { ...filter['properties.mag'], $lte: query.maxMagnitude };
+      filter['properties.mag'] = {
+        ...filter['properties.mag'],
+        $lte: query.maxMagnitude,
+      };
     }
-    
+
     if (query.location) {
       filter['properties.place'] = { $regex: query.location, $options: 'i' };
     }
-    
+
     if (query.startDate) {
-      filter['properties.time'] = { ...filter['properties.time'], $gte: new Date(query.startDate).getTime() };
+      filter['properties.time'] = {
+        ...filter['properties.time'],
+        $gte: new Date(query.startDate).getTime(),
+      };
     }
-    
+
     if (query.endDate) {
-      filter['properties.time'] = { ...filter['properties.time'], $lte: new Date(query.endDate).getTime() };
+      filter['properties.time'] = {
+        ...filter['properties.time'],
+        $lte: new Date(query.endDate).getTime(),
+      };
     }
-    
+
     if (query.processed !== undefined) {
       filter.processed = query.processed;
     }
-    
+
     if (query.notificationSent !== undefined) {
       filter.notificationSent = query.notificationSent;
     }
@@ -274,7 +354,7 @@ export class EarthquakeService implements OnModuleInit {
       .limit(limit)
       .skip(offset);
 
-    return earthquakes.map(earthquake => ({
+    return earthquakes.map((earthquake) => ({
       id: earthquake.id,
       magnitude: earthquake.properties.mag,
       location: {
@@ -295,39 +375,46 @@ export class EarthquakeService implements OnModuleInit {
   }
 
   async processEarthquakeAlert(earthquake: EarthquakeEvent): Promise<void> {
-     try {
-        // Publish to MQTT for mobile devices
-        await this.mqttService.publishEarthquakeAlert(earthquake);
-        
-        // Mark as notification sent in MongoDB
-        await this.earthquakeModel.updateOne(
-            { id: earthquake.id },
-            { notificationSent: true }
-        );
-        
-        // Update Redis if necessary (optional, but keeps consistency)
-        earthquake.notificationSent = true;
-        // Update in detail hash
-        await this.redis.set(`earthquakes:detail:${earthquake.id}`, JSON.stringify(earthquake), 'EX', 86400);
-        // Updating sorted set is harder because it's a string value. 
-        // We might skip updating sorted set for this flag as list view might not strictly need it real-time 
-        // or we can remove and add again.
-        // For performance, let's skip ZSET update for now unless critical.
+    try {
+      // Publish to MQTT for mobile devices
+      await this.mqttService.publishEarthquakeAlert(earthquake);
 
-        this.logger.log(`Alert sent for earthquake ${earthquake.id} (${earthquake.magnitude}M)`);
-     } catch (error) {
-         this.logger.error(`Failed to process alert for ${earthquake.id}`, error);
-         throw error;
-     }
+      // Mark as notification sent in MongoDB
+      await this.earthquakeModel.updateOne(
+        { id: earthquake.id },
+        { notificationSent: true },
+      );
+
+      // Update Redis if necessary (optional, but keeps consistency)
+      earthquake.notificationSent = true;
+      // Update in detail hash
+      await this.redis.set(
+        `earthquakes:detail:${earthquake.id}`,
+        JSON.stringify(earthquake),
+        'EX',
+        86400,
+      );
+      // Updating sorted set is harder because it's a string value.
+      // We might skip updating sorted set for this flag as list view might not strictly need it real-time
+      // or we can remove and add again.
+      // For performance, let's skip ZSET update for now unless critical.
+
+      this.logger.log(
+        `Alert sent for earthquake ${earthquake.id} (${earthquake.magnitude}M)`,
+      );
+    } catch (error) {
+      this.logger.error(`Failed to process alert for ${earthquake.id}`, error);
+      throw error;
+    }
   }
 
   async getStatistics(): Promise<any> {
     const total = await this.earthquakeModel.countDocuments();
     const last24Hours = await this.earthquakeModel.countDocuments({
-      'properties.time': { $gte: Date.now() - 24 * 60 * 60 * 1000 }
+      'properties.time': { $gte: Date.now() - 24 * 60 * 60 * 1000 },
     });
     const significantEarthquakes = await this.earthquakeModel.countDocuments({
-      'properties.mag': { $gte: this.minMagnitudeAlert }
+      'properties.mag': { $gte: this.minMagnitudeAlert },
     });
 
     return {
@@ -349,9 +436,12 @@ export class EarthquakeService implements OnModuleInit {
       connectedClients: this.earthquakeGateway.getConnectedClientsCount(),
     };
 
-    const status = Object.values(details).every(val => 
-      val === 'connected' || typeof val === 'number' || val instanceof Date
-    ) ? 'healthy' : 'unhealthy';
+    const status = Object.values(details).every(
+      (val) =>
+        val === 'connected' || typeof val === 'number' || val instanceof Date,
+    )
+      ? 'healthy'
+      : 'unhealthy';
 
     return { status, details };
   }

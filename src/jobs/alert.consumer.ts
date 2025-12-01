@@ -14,7 +14,7 @@ export class AlertConsumer extends WorkerHost {
 
   async process(job: Job<EarthquakeEvent, any, string>): Promise<any> {
     this.logger.debug(`Processing alert job for earthquake: ${job.data.id}`);
-    
+
     try {
       await this.earthquakeService.processEarthquakeAlert(job.data);
       return { sent: true };

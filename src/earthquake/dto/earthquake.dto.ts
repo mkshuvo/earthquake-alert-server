@@ -1,4 +1,10 @@
-import { IsString, IsNumber, IsOptional, IsBoolean, IsDateString } from 'class-validator';
+import {
+  IsString,
+  IsNumber,
+  IsOptional,
+  IsBoolean,
+  IsDateString,
+} from 'class-validator';
 import { Transform } from 'class-transformer';
 
 export class EarthquakeQueryDto {

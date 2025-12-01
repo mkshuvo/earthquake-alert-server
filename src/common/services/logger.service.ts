@@ -7,7 +7,10 @@ export class CustomLoggerService implements LoggerService {
   private logger: winston.Logger;
 
   constructor(private configService: ConfigService) {
-    const logLevel = this.configService.get<string>('app.logging.level', 'info');
+    const logLevel = this.configService.get<string>(
+      'app.logging.level',
+      'info',
+    );
     const logDir = this.configService.get<string>('app.logging.dir', './logs');
 
     this.logger = winston.createLogger({
@@ -15,23 +18,23 @@ export class CustomLoggerService implements LoggerService {
       format: winston.format.combine(
         winston.format.timestamp(),
         winston.format.errors({ stack: true }),
-        winston.format.json()
+        winston.format.json(),
       ),
       transports: [
         new winston.transports.Console({
           format: winston.format.combine(
             winston.format.colorize(),
-            winston.format.simple()
-          )
+            winston.format.simple(),
+          ),
         }),
         new winston.transports.File({
           filename: `${logDir}/error.log`,
-          level: 'error'
+          level: 'error',
         }),
         new winston.transports.File({
-          filename: `${logDir}/combined.log`
-        })
-      ]
+          filename: `${logDir}/combined.log`,
+        }),
+      ],
     });
   }
 

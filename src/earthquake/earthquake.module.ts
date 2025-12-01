@@ -17,4 +17,4 @@ import { CommonModule } from '../common/common.module';
   providers: [EarthquakeService, EarthquakeGateway],
   exports: [EarthquakeService, EarthquakeGateway],
 })
-export class EarthquakeModule { }
+export class EarthquakeModule {}

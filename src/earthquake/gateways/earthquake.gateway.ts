@@ -17,13 +17,15 @@ import { EarthquakeEvent } from '../schemas/earthquake.schema';
     credentials: true,
   },
 })
-export class EarthquakeGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
+export class EarthquakeGateway
+  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
+{
   @WebSocketServer()
   server!: Server;
 
   private logger = new Logger('EarthquakeGateway');
 
-  afterInit(server: Server): void {
+  afterInit(): void {
     this.logger.log('WebSocket Gateway initialized');
   }
 
@@ -55,7 +57,10 @@ export class EarthquakeGateway implements OnGatewayInit, OnGatewayConnection, On
     this.server.to('earthquake-updates').emit('new-earthquake', earthquake);
   }
 
-  broadcastServerStatus(status: { isConnected: boolean; lastUpdate: Date }): void {
+  broadcastServerStatus(status: {
+    isConnected: boolean;
+    lastUpdate: Date;
+  }): void {
     this.server.emit('server-status', status);
   }
 

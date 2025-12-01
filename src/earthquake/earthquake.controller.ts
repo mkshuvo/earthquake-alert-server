@@ -1,4 +1,11 @@
-import { Controller, Get, Query, ValidationPipe, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Query,
+  ValidationPipe,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { EarthquakeService } from './earthquake.service';
 import { EarthquakeQueryDto } from './dto/earthquake.dto';
 
@@ -26,11 +33,12 @@ export class EarthquakeController {
   @Get('fetch')
   @HttpCode(HttpStatus.OK)
   async triggerManualFetch() {
-    const newEarthquakes = await this.earthquakeService.fetchAndProcess('all_hour');
-    return { 
-        message: 'Manual fetch triggered successfully',
-        count: newEarthquakes.length,
-        newEarthquakes: newEarthquakes.map(e => e.id)
+    const newEarthquakes =
+      await this.earthquakeService.fetchAndProcess('all_hour');
+    return {
+      message: 'Manual fetch triggered successfully',
+      count: newEarthquakes.length,
+      newEarthquakes: newEarthquakes.map((e) => e.id),
     };
   }
 }
