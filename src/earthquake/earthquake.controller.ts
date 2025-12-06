@@ -18,6 +18,11 @@ export class EarthquakeController {
     return await this.earthquakeService.findAll(query);
   }
 
+  @Get('search')
+  async searchEarthquakes(@Query(ValidationPipe) query: EarthquakeQueryDto) {
+    return await this.earthquakeService.search(query);
+  }
+
   @Get('statistics')
   async getStatistics() {
     return await this.earthquakeService.getStatistics();

@@ -14,6 +14,7 @@ import { MqttService } from '../common/services/mqtt.service';
 import {
   EarthquakeQueryDto,
   EarthquakeResponseDto,
+  PaginatedEarthquakeResponseDto,
 } from './dto/earthquake.dto';
 
 interface USGSFeature {
@@ -372,6 +373,144 @@ export class EarthquakeService implements OnModuleInit {
       createdAt: (earthquake as any).createdAt || new Date(),
       updatedAt: (earthquake as any).updatedAt || new Date(),
     }));
+  }
+
+  async search(
+    query: EarthquakeQueryDto,
+  ): Promise<PaginatedEarthquakeResponseDto> {
+    const page = query.offset
+      ? Math.floor(query.offset / (query.limit || 20)) + 1
+      : query.page || 1;
+    const limit = query.limit || 20;
+    const skip = (page - 1) * limit;
+
+    // Generate Cache Key
+    const cacheKey = `search:${JSON.stringify(query)}`;
+
+    // Try Redis Cache
+    try {
+      const cachedResult = await this.redis.get(cacheKey);
+      if (cachedResult) {
+        this.logger.debug(`Cache hit for search: ${cacheKey}`);
+        return JSON.parse(cachedResult);
+      }
+    } catch (e) {
+      this.logger.warn('Redis cache read failed', e);
+    }
+
+    // Build MongoDB Query
+    const filter: any = {};
+
+    if (query.q) {
+      filter['properties.place'] = { $regex: query.q, $options: 'i' };
+    }
+
+    if (query.location) {
+      filter['properties.place'] = { $regex: query.location, $options: 'i' };
+    }
+
+    if (query.minMagnitude !== undefined) {
+      filter['properties.mag'] = {
+        ...filter['properties.mag'],
+        $gte: query.minMagnitude,
+      };
+    }
+
+    if (query.maxMagnitude !== undefined) {
+      filter['properties.mag'] = {
+        ...filter['properties.mag'],
+        $lte: query.maxMagnitude,
+      };
+    }
+
+    if (query.minDepth !== undefined) {
+      filter['geometry.coordinates.2'] = {
+        ...filter['geometry.coordinates.2'],
+        $gte: query.minDepth,
+      };
+    }
+
+    if (query.maxDepth !== undefined) {
+      filter['geometry.coordinates.2'] = {
+        ...filter['geometry.coordinates.2'],
+        $lte: query.maxDepth,
+      };
+    }
+
+    if (query.startDate) {
+      filter['properties.time'] = {
+        ...filter['properties.time'],
+        $gte: new Date(query.startDate).getTime(),
+      };
+    }
+
+    if (query.endDate) {
+      filter['properties.time'] = {
+        ...filter['properties.time'],
+        $lte: new Date(query.endDate).getTime(),
+      };
+    }
+
+    // Sorting
+    const sort: any = {};
+    if (query.sortBy) {
+      const direction = query.order === 'asc' ? 1 : -1;
+      switch (query.sortBy) {
+        case 'magnitude':
+          sort['properties.mag'] = direction;
+          break;
+        case 'depth':
+          sort['geometry.coordinates.2'] = direction;
+          break;
+        case 'time':
+        default:
+          sort['properties.time'] = direction;
+      }
+    } else {
+      sort['properties.time'] = -1; // Default to newest
+    }
+
+    // Execute Query
+    const [earthquakes, total] = await Promise.all([
+      this.earthquakeModel.find(filter).sort(sort).skip(skip).limit(limit),
+      this.earthquakeModel.countDocuments(filter),
+    ]);
+
+    const result: PaginatedEarthquakeResponseDto = {
+      data: earthquakes.map((earthquake) => ({
+        id: earthquake.id,
+        magnitude: earthquake.properties.mag,
+        location: {
+          latitude: earthquake.geometry.coordinates[1],
+          longitude: earthquake.geometry.coordinates[0],
+          place: earthquake.properties.place,
+        },
+        depth: earthquake.geometry.coordinates[2],
+        timestamp: new Date(earthquake.properties.time),
+        url: earthquake.properties.url,
+        alert: earthquake.properties.alert,
+        tsunami: earthquake.properties.tsunami,
+        processed: earthquake.processed,
+        notificationSent: earthquake.notificationSent,
+        createdAt: (earthquake as any).createdAt || new Date(),
+        updatedAt: (earthquake as any).updatedAt || new Date(),
+      })),
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+
+    // Cache Result (TTL: 5 minutes)
+    try {
+      await this.redis.set(cacheKey, JSON.stringify(result), 'EX', 300);
+    } catch (e) {
+      this.logger.warn('Redis cache write failed', e);
+    }
+
+    return result;
   }
 
   async processEarthquakeAlert(earthquake: EarthquakeEvent): Promise<void> {

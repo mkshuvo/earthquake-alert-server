@@ -6,6 +6,7 @@ import {
   OnGatewayInit,
   SubscribeMessage,
   MessageBody,
+  ConnectedSocket,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { Logger } from '@nestjs/common';
@@ -39,14 +40,20 @@ export class EarthquakeGateway
   }
 
   @SubscribeMessage('subscribe-earthquakes')
-  handleSubscribeEarthquakes(@MessageBody() data: any, client: Socket): void {
+  handleSubscribeEarthquakes(
+    @MessageBody() data: any,
+    @ConnectedSocket() client: Socket,
+  ): void {
     this.logger.log(`Client ${client.id} subscribed to earthquake updates`);
     client.join('earthquake-updates');
     client.emit('subscribed', 'Subscribed to earthquake updates');
   }
 
   @SubscribeMessage('unsubscribe-earthquakes')
-  handleUnsubscribeEarthquakes(@MessageBody() data: any, client: Socket): void {
+  handleUnsubscribeEarthquakes(
+    @MessageBody() data: any,
+    @ConnectedSocket() client: Socket,
+  ): void {
     this.logger.log(`Client ${client.id} unsubscribed from earthquake updates`);
     client.leave('earthquake-updates');
     client.emit('unsubscribed', 'Unsubscribed from earthquake updates');

@@ -82,3 +82,9 @@ EarthquakeSchema.index({ 'properties.time': -1 });
 EarthquakeSchema.index({ 'properties.mag': -1 });
 EarthquakeSchema.index({ processed: 1 });
 EarthquakeSchema.index({ notificationSent: 1 });
+EarthquakeSchema.index({ 'properties.place': 'text' });
+EarthquakeSchema.index({ 'geometry.coordinates.2': 1 }); // Depth index
+
+// Search indexes
+EarthquakeSchema.index({ 'properties.place': 'text' });
+EarthquakeSchema.index({ 'geometry.coordinates.2': 1 }); // Depth index

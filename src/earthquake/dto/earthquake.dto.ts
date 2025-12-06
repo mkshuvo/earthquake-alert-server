@@ -41,6 +41,11 @@ export class EarthquakeQueryDto {
   offset?: number;
 
   @IsOptional()
+  @IsNumber()
+  @Transform(({ value }) => parseInt(value))
+  page?: number;
+
+  @IsOptional()
   @IsBoolean()
   @Transform(({ value }) => value === 'true')
   processed?: boolean;
@@ -49,6 +54,29 @@ export class EarthquakeQueryDto {
   @IsBoolean()
   @Transform(({ value }) => value === 'true')
   notificationSent?: boolean;
+
+  @IsOptional()
+  @IsString()
+  q?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Transform(({ value }) => parseFloat(value))
+  minDepth?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Transform(({ value }) => parseFloat(value))
+  maxDepth?: number;
+
+  @IsOptional()
+  @IsString()
+  sortBy?: 'time' | 'magnitude' | 'depth';
+
+  @IsOptional()
+  @IsString()
+  @Transform(({ value }) => value)
+  order?: 'asc' | 'desc';
 }
 
 export class EarthquakeResponseDto {
@@ -68,4 +96,14 @@ export class EarthquakeResponseDto {
   notificationSent!: boolean;
   createdAt!: Date;
   updatedAt!: Date;
+}
+
+export class PaginatedEarthquakeResponseDto {
+  data!: EarthquakeResponseDto[];
+  meta!: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
 }
