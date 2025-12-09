@@ -1,0 +1,14 @@
+node_modules
+dist
+npm-debug.log
+.git
+.gitignore
+.env
+.DS_Store
+.vscode
+coverage
+test
+mongo_data
+redis_data
+emqx_data
+emqx_logs
