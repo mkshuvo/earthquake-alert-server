@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  app: 
+    container_name: ea-worker
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "51763:6000"
+    depends_on:
+      - mongo
+      - redis
+      - mqtt
+    networks:
+      - earthquake_network
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MQTT_BROKER_URL: "mqtt://ea-emqx:1883"
+      MONGO_USERNAME: root
+      MONGO_PASSWORD: root
+      MONGO_HOST: mongo
+      MONGO_PORT: 27017
+      MONGO_DB: earthquake_db
+      MONGO_URL: "mongodb://root:root@mongo:27017/earthquake_db"
+      MONGODB_URI: "mongodb://root:root@mongo:27017/earthquake_db?authSource=admin"
+      MONGO_CLOUD_URL: "mongodb+srv://admin:iamshuvo123@earthquake.a0xu3p0.mongodb.net/?retryWrites=true&w=majority"
+      CORS_ORIGIN: "http://www.quakenow.ovh"
+
+  mongo:  
+    container_name: ea-mongodb
+    image: "mongo:7.0.2"
+    ports:
+      - "43982:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: root
+    networks:
+      - earthquake_network
+    volumes:
+      - ./mongo_data:/data/db
+
+  redis:
+    container_name: ea-redis
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - earthquake_network
+    volumes:
+      - ./redis_data:/data
+
+  mqtt:
+    container_name: ea-emqx
+    image: "emqx/emqx:5.0.0"
+    ports:
+      - "45329:1883"      # MQTT (internal)
+      - "47754:8883"      # MQTT TLS (external)
+      - "48083:8083"      # WebSocket
+      - "48084:8084"      # WebSocket Secure
+      - "18083:18083"     # Dashboard
+    environment:
+      EMQX_NAME: emqx
+      EMQX_HOST: emqx
+      EMQX_NODE__COOKIE: emqx_secret_cookie
+    networks:
+      - earthquake_network
+    volumes:
+      - ./emqx_data:/opt/emqx/data
+      - ./emqx_logs:/opt/emqx/log
+
+  rabbitmq:
+    container_name: rabbitmq
+    image: rabbitmq:3-management
+    hostname: rabbitmq
+    ports:
+      - "42107:5672"
+      - "49876:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: rabbit
+      RABBITMQ_DEFAULT_PASS: rabbit
+    networks:
+      - earthquake_network
+
+networks:
+  earthquake_network:
+    external: true
