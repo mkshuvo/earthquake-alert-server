@@ -19,7 +19,7 @@ jest.mock('ioredis', () => {
 describe('EarthquakeService', () => {
   let service: EarthquakeService;
   let model: any;
-  
+
   const mockEarthquake = {
     properties: {
       place: 'Test Location',
@@ -105,7 +105,7 @@ describe('EarthquakeService', () => {
     it('should fetch from db if cache miss', async () => {
       const query = { q: 'test', page: 1, limit: 10 };
       mockRedisInstance.get.mockResolvedValue(null);
-      
+
       model.find.mockReturnThis();
       model.sort.mockReturnThis();
       model.skip.mockReturnThis();
@@ -114,23 +114,29 @@ describe('EarthquakeService', () => {
 
       const result = await service.search(query);
 
-      expect(result.data).toEqual([mockEarthquake]);
+      expect(result.data[0]?.magnitude).toBe(mockEarthquake.properties.mag);
+      expect(result.data[0]?.location.place).toBe(
+        mockEarthquake.properties.place,
+      );
+      expect(result.data[0]?.depth).toBe(
+        mockEarthquake.geometry.coordinates[2],
+      );
       expect(result.meta.total).toBe(1);
       expect(model.find).toHaveBeenCalled();
       expect(mockRedisInstance.set).toHaveBeenCalled();
     });
 
     it('should apply filters correctly', async () => {
-      const query = { 
-        q: 'Japan', 
-        minDepth: 10, 
-        maxDepth: 50, 
+      const query = {
+        q: 'Japan',
+        minDepth: 10,
+        maxDepth: 50,
         minMagnitude: 5,
         maxMagnitude: 7,
-        sortBy: 'magnitude',
-        order: 'desc' as const
+        sortBy: 'magnitude' as const,
+        order: 'desc' as const,
       };
-      
+
       mockRedisInstance.get.mockResolvedValue(null);
       model.limit.mockResolvedValue([]);
       model.countDocuments.mockResolvedValue(0);
@@ -139,7 +145,10 @@ describe('EarthquakeService', () => {
 
       const filterArg = model.find.mock.calls[0][0];
       expect(filterArg['properties.place']).toBeDefined();
-      expect(filterArg['geometry.coordinates.2']).toEqual({ $gte: 10, $lte: 50 });
+      expect(filterArg['geometry.coordinates.2']).toEqual({
+        $gte: 10,
+        $lte: 50,
+      });
       expect(filterArg['properties.mag']).toEqual({ $gte: 5, $lte: 7 });
 
       const sortArg = model.sort.mock.calls[0][0];
