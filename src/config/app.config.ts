@@ -1,14 +1,30 @@
 import { registerAs } from '@nestjs/config';
 
+const parseCors = (input?: string) => {
+  if (!input) {
+    return [
+      'http://localhost:3000',
+      'http://localhost:8085',
+      'http://localhost:3001',
+      'http://127.0.0.1:8085',
+      'http://127.0.0.1:3001',
+    ];
+  }
+  const trimmed = input.trim();
+  if (trimmed.startsWith('[')) {
+    try {
+      const arr = JSON.parse(trimmed);
+      return Array.isArray(arr) ? arr : [trimmed];
+    } catch {
+      return [trimmed];
+    }
+  }
+  return trimmed.split(',').map(s => s.trim()).filter(Boolean);
+};
+
 export default registerAs('app', () => ({
   port: parseInt(process.env.PORT || '6000', 10),
-  corsOrigin: process.env.CORS_ORIGIN || [
-    'http://localhost:3000',
-    'http://localhost:8085',
-    'http://localhost:3001',
-    'http://127.0.0.1:8085',
-    'http://127.0.0.1:3001',
-  ],
+  corsOrigin: parseCors(process.env.CORS_ORIGIN),
 
   // Database
   mongoUri:
