@@ -5,16 +5,24 @@ import { Earthquake } from './schemas/earthquake.schema';
 import { EarthquakeGateway } from './gateways/earthquake.gateway';
 import { ConfigService } from '@nestjs/config';
 import { MqttService } from '../common/services/mqtt.service';
+import { DRAGONFLY_CLIENT } from '../common/providers/dragonfly.provider';
 
-// Mock Redis class from ioredis
-const mockRedisInstance = {
-  get: jest.fn(),
-  set: jest.fn(),
+const mockPipeline = {
+  set: jest.fn().mockReturnThis(),
+  zadd: jest.fn().mockReturnThis(),
+  zremrangebyrank: jest.fn().mockReturnThis(),
+  exec: jest.fn().mockResolvedValue([]),
 };
 
-jest.mock('ioredis', () => {
-  return jest.fn().mockImplementation(() => mockRedisInstance);
-});
+const mockDragonflyInstance = {
+  get: jest.fn(),
+  set: jest.fn(),
+  mget: jest.fn(),
+  zrevrange: jest.fn(),
+  zremrangebyscore: jest.fn().mockResolvedValue(0),
+  pipeline: jest.fn().mockReturnValue(mockPipeline),
+  status: 'ready',
+};
 
 describe('EarthquakeService', () => {
   let service: EarthquakeService;
@@ -47,10 +55,12 @@ describe('EarthquakeService', () => {
     server: {
       emit: jest.fn(),
     },
+    getConnectedClientsCount: jest.fn().mockReturnValue(0),
   };
 
   const mockMqttService = {
     publish: jest.fn(),
+    isConnected: jest.fn().mockReturnValue(true),
   };
 
   beforeEach(async () => {
@@ -75,6 +85,10 @@ describe('EarthquakeService', () => {
           provide: MqttService,
           useValue: mockMqttService,
         },
+        {
+          provide: DRAGONFLY_CLIENT,
+          useValue: mockDragonflyInstance,
+        },
       ],
     }).compile();
 
@@ -93,18 +107,18 @@ describe('EarthquakeService', () => {
         data: [mockEarthquake],
         meta: { total: 1, page: 1, limit: 20, totalPages: 1 },
       };
-      mockRedisInstance.get.mockResolvedValue(JSON.stringify(cachedResult));
+      mockDragonflyInstance.get.mockResolvedValue(JSON.stringify(cachedResult));
 
       const result = await service.search(query);
 
       expect(result).toEqual(cachedResult);
-      expect(mockRedisInstance.get).toHaveBeenCalled();
+      expect(mockDragonflyInstance.get).toHaveBeenCalled();
       expect(model.find).not.toHaveBeenCalled();
     });
 
     it('should fetch from db if cache miss', async () => {
       const query = { q: 'test', page: 1, limit: 10 };
-      mockRedisInstance.get.mockResolvedValue(null);
+      mockDragonflyInstance.get.mockResolvedValue(null);
 
       model.find.mockReturnThis();
       model.sort.mockReturnThis();
@@ -123,7 +137,7 @@ describe('EarthquakeService', () => {
       );
       expect(result.meta.total).toBe(1);
       expect(model.find).toHaveBeenCalled();
-      expect(mockRedisInstance.set).toHaveBeenCalled();
+      expect(mockDragonflyInstance.set).toHaveBeenCalled();
     });
 
     it('should apply filters correctly', async () => {
@@ -137,7 +151,7 @@ describe('EarthquakeService', () => {
         order: 'desc' as const,
       };
 
-      mockRedisInstance.get.mockResolvedValue(null);
+      mockDragonflyInstance.get.mockResolvedValue(null);
       model.limit.mockResolvedValue([]);
       model.countDocuments.mockResolvedValue(0);
 
@@ -153,6 +167,13 @@ describe('EarthquakeService', () => {
 
       const sortArg = model.sort.mock.calls[0][0];
       expect(sortArg['properties.mag']).toBe(-1);
+    });
+  });
+
+  describe('getHealthCheck', () => {
+    it('should report dragonfly as connected when status is ready', async () => {
+      const result = await service.getHealthCheck();
+      expect(result.details.dragonfly).toBe('connected');
     });
   });
 });

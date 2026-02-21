@@ -1,5 +1,5 @@
 services:
-  app: 
+  app:
     container_name: ea-worker
     build:
       context: .
@@ -8,25 +8,27 @@ services:
       - "51763:6000"
     depends_on:
       - mongo
-      - redis
+      - dragonfly
       - mqtt
     networks:
       - earthquake_network
     environment:
-      REDIS_HOST: redis
+      REDIS_HOST: ea-dragonfly
       REDIS_PORT: 6379
+      DRAGONFLY_HOST: ea-dragonfly
+      DRAGONFLY_PORT: 6379
       MQTT_BROKER_URL: "mqtt://ea-emqx:1883"
       MONGO_USERNAME: root
       MONGO_PASSWORD: root
-      MONGO_HOST: mongo
+      MONGO_HOST: ea-mongodb
       MONGO_PORT: 27017
       MONGO_DB: earthquake_db
-      MONGO_URL: "mongodb://root:root@mongo:27017/earthquake_db"
-      MONGODB_URI: "mongodb://root:root@mongo:27017/earthquake_db?authSource=admin"
+      MONGO_URL: "mongodb://root:root@ea-mongodb:27017/earthquake_db"
+      MONGODB_URI: "mongodb://root:root@ea-mongodb:27017/earthquake_db?authSource=admin"
       MONGO_CLOUD_URL: "mongodb+srv://admin:iamshuvo123@earthquake.a0xu3p0.mongodb.net/?retryWrites=true&w=majority"
-      CORS_ORIGIN: "*"
+      CORS_ORIGIN: "http://localhost:48291,http://localhost:3000,http://localhost:3001"
 
-  mongo:  
+  mongo:
     container_name: ea-mongodb
     image: "mongo:7.0.2"
     ports:
@@ -37,27 +39,48 @@ services:
     networks:
       - earthquake_network
     volumes:
-      - ./mongo_data:/data/db
+      - mongodb_data:/data/db:Z
 
-  redis:
-    container_name: ea-redis
-    image: redis:7-alpine
+  dragonfly:
+    container_name: ea-dragonfly
+    image: docker.dragonflydb.io/dragonflydb/dragonfly:v1.27.1
     ports:
       - "6379:6379"
     networks:
       - earthquake_network
+    ulimits:
+      memlock: -1
     volumes:
-      - ./redis_data:/data
+      - dragonfly_data:/data:Z
+    command: >
+      dragonfly
+      --maxmemory=2gb
+      --hz=100
+      --tcp_nodelay=true
+      --default_lua_flags=allow-undeclared-keys
+      --dbfilename=earthquake-snapshot
+      --dir=/data
+      --snapshot_cron="*/30 * * * *"
+      --proactor_threads=2
+    deploy:
+      resources:
+        limits:
+          memory: 2.5G
+    healthcheck:
+      test: [ "CMD", "redis-cli", "-p", "6379", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   mqtt:
     container_name: ea-emqx
     image: "emqx/emqx:5.0.0"
     ports:
-      - "45329:1883"      # MQTT (internal)
-      - "47754:8883"      # MQTT TLS (external)
-      - "48083:8083"      # WebSocket
-      - "48084:8084"      # WebSocket Secure
-      - "18083:18083"     # Dashboard
+      - "45329:1883" # MQTT (internal)
+      - "47754:8883" # MQTT TLS (external)
+      - "48083:8083" # WebSocket
+      - "48084:8084" # WebSocket Secure
+      - "18083:18083" # Dashboard
     environment:
       EMQX_NAME: emqx
       EMQX_HOST: emqx
@@ -66,9 +89,9 @@ services:
       - earthquake_network
     volumes:
       # Data persistence
-      - ./emqx_data:/opt/emqx/data
+      - emqx_data:/opt/emqx/data:Z
       # Logs
-      - ./emqx_logs:/opt/emqx/log
+      - emqx_log:/opt/emqx/log:Z
 
   rabbitmq:
     container_name: rabbitmq
@@ -86,3 +109,9 @@ services:
 networks:
   earthquake_network:
     external: true
+
+volumes:
+  mongodb_data:
+  dragonfly_data:
+  emqx_data:
+  emqx_log:

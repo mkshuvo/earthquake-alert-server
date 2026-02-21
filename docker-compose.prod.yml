@@ -10,13 +10,15 @@ services:
       - "51763:6000"
     depends_on:
       - mongo
-      - redis
+      - dragonfly
       - mqtt
     networks:
       - earthquake_network
     environment:
-      REDIS_HOST: redis
+      REDIS_HOST: ea-dragonfly
       REDIS_PORT: 6379
+      DRAGONFLY_HOST: ea-dragonfly
+      DRAGONFLY_PORT: 6379
       MQTT_BROKER_URL: "mqtt://ea-emqx:1883"
       MONGO_USERNAME: root
       MONGO_PASSWORD: root
@@ -41,15 +43,36 @@ services:
     volumes:
       - ./mongo_data:/data/db
 
-  redis:
-    container_name: ea-redis
-    image: redis:7-alpine
+  dragonfly:
+    container_name: ea-dragonfly
+    image: docker.dragonflydb.io/dragonflydb/dragonfly:v1.27.1
     ports:
       - "6379:6379"
     networks:
       - earthquake_network
+    ulimits:
+      memlock: -1
     volumes:
-      - ./redis_data:/data
+      - ./dragonfly_data:/data
+    command: >
+      dragonfly
+      --maxmemory=2gb
+      --hz=100
+      --tcp_nodelay=true
+      --default_lua_flags=allow-undeclared-keys
+      --dbfilename=earthquake-snapshot
+      --dir=/data
+      --snapshot_cron="*/30 * * * *"
+      --proactor_threads=2
+    deploy:
+      resources:
+        limits:
+          memory: 2.5G
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6379", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   mqtt:
     container_name: ea-emqx

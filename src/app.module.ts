@@ -24,8 +24,8 @@ import appConfig from './config/app.config';
     BullModule.forRootAsync({
       useFactory: async (configService: ConfigService) => ({
         connection: {
-          host: configService.get<string>('app.redis.host'),
-          port: configService.get<number>('app.redis.port'),
+          host: configService.get<string>('app.dragonfly.host'),
+          port: configService.get<number>('app.dragonfly.port'),
         },
       }),
       inject: [ConfigService],
@@ -38,4 +38,4 @@ import appConfig from './config/app.config';
   providers: [],
   exports: [MongooseModule],
 })
-export class AppModule {}
+export class AppModule { }

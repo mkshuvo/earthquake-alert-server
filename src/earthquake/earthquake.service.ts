@@ -1,6 +1,7 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Inject, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ConfigService } from '@nestjs/config';
+import { Cron } from '@nestjs/schedule';
 import { Model } from 'mongoose';
 import axios, { AxiosResponse } from 'axios';
 import Redis from 'ioredis';
@@ -11,6 +12,7 @@ import {
 } from './schemas/earthquake.schema';
 import { EarthquakeGateway } from './gateways/earthquake.gateway';
 import { MqttService } from '../common/services/mqtt.service';
+import { DRAGONFLY_CLIENT } from '../common/providers/dragonfly.provider';
 import {
   EarthquakeQueryDto,
   EarthquakeResponseDto,
@@ -63,10 +65,12 @@ interface USGSResponse {
 
 @Injectable()
 export class EarthquakeService implements OnModuleInit {
-  private redis: Redis;
   private readonly logger = new Logger('EarthquakeService');
   private lastFetchTime: Date = new Date();
   private readonly minMagnitudeAlert: number;
+  private readonly maxRecordsInMemory: number;
+  private readonly earthquakeDataTtlSeconds: number;
+  private readonly searchCacheTtlSeconds: number;
 
   constructor(
     @InjectModel(Earthquake.name)
@@ -74,17 +78,24 @@ export class EarthquakeService implements OnModuleInit {
     private configService: ConfigService,
     private earthquakeGateway: EarthquakeGateway,
     private mqttService: MqttService,
+    @Inject(DRAGONFLY_CLIENT) private readonly dragonfly: Redis,
   ) {
     this.minMagnitudeAlert = this.configService.get<number>(
       'app.earthquake.minMagnitudeAlert',
       4.0,
     );
-
-    // Initialize Redis
-    this.redis = new Redis({
-      host: this.configService.get<string>('app.redis.host', 'localhost'),
-      port: this.configService.get<number>('app.redis.port', 6379),
-    });
+    this.maxRecordsInMemory = this.configService.get<number>(
+      'app.dataRetention.maxRecordsInMemory',
+      5000,
+    );
+    this.earthquakeDataTtlSeconds = this.configService.get<number>(
+      'app.dataRetention.earthquakeDataTtlSeconds',
+      86400,
+    );
+    this.searchCacheTtlSeconds = this.configService.get<number>(
+      'app.dataRetention.searchCacheTtlSeconds',
+      300,
+    );
   }
 
   async onModuleInit(): Promise<void> {
@@ -157,34 +168,39 @@ export class EarthquakeService implements OnModuleInit {
             notificationSent: false,
           });
 
-          await newEarthquake.save();
-
-          // Transform and Cache in Redis
           const earthquakeEvent: EarthquakeEvent =
             this.transformToEarthquakeEvent(earthquake);
 
-          // 1. Add to Sorted Set (Time based)
-          await this.redis.zadd(
-            'earthquakes:recent',
-            earthquakeEvent.timestamp.getTime(),
-            JSON.stringify(earthquakeEvent),
-          );
+          // PARALLEL WRITE to MongoDB and Dragonfly using Promise.allSettled
+          const [mongoResult, dragonflyResult] = await Promise.allSettled([
+            newEarthquake.save(),
+            this.saveToDragonfly(earthquakeEvent),
+          ]);
 
-          // 2. Add to Hash (ID based detail) - Optional, but good for lookup
-          await this.redis.set(
-            `earthquakes:detail:${earthquakeEvent.id}`,
-            JSON.stringify(earthquakeEvent),
-            'EX',
-            86400,
-          ); // 24h expiry
+          // Check MongoDB result
+          if (mongoResult.status === 'rejected') {
+            this.logger.error(
+              `MongoDB save failed for earthquake ${earthquake.id}:`,
+              mongoResult.reason,
+            );
+            throw mongoResult.reason; // Critical: don't continue if MongoDB fails
+          }
 
-          // Trim Redis Sorted Set to keep only last 1000
-          await this.redis.zremrangebyrank('earthquakes:recent', 0, -1001);
+          // Check Dragonfly result (non-critical, log but continue)
+          if (dragonflyResult.status === 'rejected') {
+            this.logger.warn(
+              `Dragonfly save failed for earthquake ${earthquake.id} (MongoDB succeeded):`,
+              dragonflyResult.reason,
+            );
+          } else {
+            this.logger.debug(
+              `Successfully saved earthquake ${earthquake.id} to both MongoDB and Dragonfly`,
+            );
+          }
 
           newEarthquakes.push(earthquakeEvent);
         } else {
           // Check for updates based on 'updated' timestamp from USGS
-          // Use optional chaining or default to 0 if undefined
           const lastUpdate = existingRecord.properties.updated || 0;
           const currentUpdate = earthquake.properties.updated || 0;
 
@@ -195,23 +211,30 @@ export class EarthquakeService implements OnModuleInit {
 
             existingRecord.properties = earthquake.properties;
             existingRecord.geometry = earthquake.geometry;
-            await existingRecord.save();
 
             const earthquakeEvent: EarthquakeEvent =
               this.transformToEarthquakeEvent(earthquake);
 
-            // Update Redis
-            await this.redis.zadd(
-              'earthquakes:recent',
-              earthquakeEvent.timestamp.getTime(),
-              JSON.stringify(earthquakeEvent),
-            );
-            await this.redis.set(
-              `earthquakes:detail:${earthquakeEvent.id}`,
-              JSON.stringify(earthquakeEvent),
-              'EX',
-              86400,
-            );
+            // PARALLEL UPDATE to MongoDB and Dragonfly
+            const [mongoResult, dragonflyResult] = await Promise.allSettled([
+              existingRecord.save(),
+              this.saveToDragonfly(earthquakeEvent),
+            ]);
+
+            if (mongoResult.status === 'rejected') {
+              this.logger.error(
+                `MongoDB update failed for earthquake ${earthquake.id}:`,
+                mongoResult.reason,
+              );
+              throw mongoResult.reason;
+            }
+
+            if (dragonflyResult.status === 'rejected') {
+              this.logger.warn(
+                `Dragonfly update failed for earthquake ${earthquake.id}:`,
+                dragonflyResult.reason,
+              );
+            }
 
             updatedEarthquakes.push(earthquakeEvent);
           }
@@ -274,9 +297,66 @@ export class EarthquakeService implements OnModuleInit {
     };
   }
 
-  // Modified findAll to use Redis first
+  /**
+   * Save earthquake to Dragonfly with per-key TTL and sorted set trimming.
+   * Uses individual keys (eq:data:{id}) instead of a hash so each entry
+   * can have its own TTL for automatic RAM cleanup.
+   */
+  private async saveToDragonfly(earthquake: EarthquakeEvent): Promise<void> {
+    const pipeline = this.dragonfly.pipeline();
+    const dataKey = `eq:data:${earthquake.id}`;
+
+    // 1. Store full data with TTL (auto-expires after configured duration)
+    pipeline.set(
+      dataKey,
+      JSON.stringify(earthquake),
+      'EX',
+      this.earthquakeDataTtlSeconds,
+    );
+
+    // 2. Add ID to sorted set with timestamp as score
+    pipeline.zadd(
+      'eq:ids:bytime',
+      earthquake.timestamp.getTime(),
+      earthquake.id,
+    );
+
+    // 3. Trim sorted set to max records (remove oldest beyond limit)
+    pipeline.zremrangebyrank(
+      'eq:ids:bytime',
+      0,
+      -(this.maxRecordsInMemory + 1),
+    );
+
+    await pipeline.exec();
+  }
+
+  /**
+   * Periodic cleanup of stale sorted set entries whose data keys have expired.
+   * Runs every 10 minutes to keep the sorted set in sync with actual data.
+   */
+  @Cron('*/10 * * * *')
+  async cleanupStaleData(): Promise<void> {
+    try {
+      const cutoff = Date.now() - this.earthquakeDataTtlSeconds * 1000;
+      const removed = await this.dragonfly.zremrangebyscore(
+        'eq:ids:bytime',
+        '-inf',
+        cutoff,
+      );
+      if (removed > 0) {
+        this.logger.log(
+          `Cleanup: removed ${removed} expired entries from sorted set`,
+        );
+      }
+    } catch (error) {
+      this.logger.warn('Cleanup cron failed:', error);
+    }
+  }
+
+  // Modified findAll to use Dragonfly first with per-key data structure
   async findAll(query: EarthquakeQueryDto): Promise<EarthquakeResponseDto[]> {
-    // Optimization: If query is simple (latest 100, no complex filters), use Redis
+    // Optimization: If query is simple (latest 100, no complex filters), use Dragonfly
     const isSimpleQuery =
       !query.location &&
       !query.minMagnitude &&
@@ -288,18 +368,34 @@ export class EarthquakeService implements OnModuleInit {
       try {
         const limit = query.limit || 100;
         const offset = query.offset || 0;
-        // ZREVRANGE is index based (0 is highest score/latest time)
-        const rawData = await this.redis.zrevrange(
-          'earthquakes:recent',
+
+        // Get IDs from sorted set (newest first)
+        const ids = await this.dragonfly.zrevrange(
+          'eq:ids:bytime',
           offset,
           offset + limit - 1,
         );
 
-        if (rawData.length > 0) {
-          return rawData.map((item) => JSON.parse(item));
+        if (ids && ids.length > 0) {
+          // Fetch full data from individual keys using MGET
+          const dataKeys = ids.map((id) => `eq:data:${id}`);
+          const dataResults = await this.dragonfly.mget(...dataKeys);
+          const validData = dataResults
+            .filter((item): item is string => item !== null)
+            .map((item) => JSON.parse(item));
+
+          if (validData.length === ids.length) {
+            return validData;
+          }
+          this.logger.warn(
+            `Dragonfly data incomplete: ${validData.length}/${ids.length} records found, falling back to MongoDB`,
+          );
         }
+        this.logger.debug(
+          'Dragonfly empty or incomplete, falling back to MongoDB',
+        );
       } catch (e) {
-        this.logger.warn('Redis read failed, falling back to MongoDB', e);
+        this.logger.warn('Dragonfly read failed, falling back to MongoDB', e);
       }
     }
 
@@ -387,15 +483,15 @@ export class EarthquakeService implements OnModuleInit {
     // Generate Cache Key
     const cacheKey = `search:${JSON.stringify(query)}`;
 
-    // Try Redis Cache
+    // Try Dragonfly Cache
     try {
-      const cachedResult = await this.redis.get(cacheKey);
+      const cachedResult = await this.dragonfly.get(cacheKey);
       if (cachedResult) {
         this.logger.debug(`Cache hit for search: ${cacheKey}`);
         return JSON.parse(cachedResult);
       }
     } catch (e) {
-      this.logger.warn('Redis cache read failed', e);
+      this.logger.warn('Dragonfly cache read failed', e);
     }
 
     // Build MongoDB Query
@@ -503,11 +599,16 @@ export class EarthquakeService implements OnModuleInit {
       },
     };
 
-    // Cache Result (TTL: 5 minutes)
+    // Cache Result with configurable TTL
     try {
-      await this.redis.set(cacheKey, JSON.stringify(result), 'EX', 300);
+      await this.dragonfly.set(
+        cacheKey,
+        JSON.stringify(result),
+        'EX',
+        this.searchCacheTtlSeconds,
+      );
     } catch (e) {
-      this.logger.warn('Redis cache write failed', e);
+      this.logger.warn('Dragonfly cache write failed', e);
     }
 
     return result;
@@ -524,19 +625,15 @@ export class EarthquakeService implements OnModuleInit {
         { notificationSent: true },
       );
 
-      // Update Redis if necessary (optional, but keeps consistency)
+      // Update Dragonfly - use individual key with TTL refresh
       earthquake.notificationSent = true;
-      // Update in detail hash
-      await this.redis.set(
-        `earthquakes:detail:${earthquake.id}`,
+      const dataKey = `eq:data:${earthquake.id}`;
+      await this.dragonfly.set(
+        dataKey,
         JSON.stringify(earthquake),
         'EX',
-        86400,
+        this.earthquakeDataTtlSeconds,
       );
-      // Updating sorted set is harder because it's a string value.
-      // We might skip updating sorted set for this flag as list view might not strictly need it real-time
-      // or we can remove and add again.
-      // For performance, let's skip ZSET update for now unless critical.
 
       this.logger.log(
         `Alert sent for earthquake ${earthquake.id} (${earthquake.magnitude}M)`,
@@ -569,7 +666,8 @@ export class EarthquakeService implements OnModuleInit {
   async getHealthCheck(): Promise<{ status: string; details: any }> {
     const details = {
       database: 'connected', // Mongoose maintains connection
-      redis: this.redis.status === 'ready' ? 'connected' : 'disconnected',
+      dragonfly:
+        this.dragonfly.status === 'ready' ? 'connected' : 'disconnected',
       mqtt: this.mqttService.isConnected() ? 'connected' : 'disconnected',
       lastFetch: this.lastFetchTime,
       connectedClients: this.earthquakeGateway.getConnectedClientsCount(),

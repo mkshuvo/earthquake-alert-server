@@ -6,6 +6,8 @@
 /rabbitmq_data
 /emqx_data
 /emqx_logs
+/mongo_data_bak
+/redis_data_bak
 
 # EMQX runtime files
 .emqx/

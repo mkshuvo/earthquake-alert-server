@@ -30,10 +30,18 @@ export default registerAs('app', () => ({
   mongoUri:
     process.env.MONGODB_URI || 'mongodb://localhost:27017/earthquake-db',
 
-  // Redis
-  redis: {
-    host: process.env.REDIS_HOST || 'localhost',
-    port: parseInt(process.env.REDIS_PORT || '6379', 10),
+  // Dragonfly (Redis-compatible in-memory store)
+  dragonfly: {
+    host: process.env.DRAGONFLY_HOST || process.env.REDIS_HOST || 'localhost',
+    port: parseInt(process.env.DRAGONFLY_PORT || process.env.REDIS_PORT || '6379', 10),
+  },
+
+  // Data Retention (RAM cleanup)
+  dataRetention: {
+    maxRecordsInMemory: parseInt(process.env.MAX_RECORDS_IN_MEMORY || '5000', 10),
+    earthquakeDataTtlSeconds: parseInt(process.env.EARTHQUAKE_DATA_TTL || '86400', 10),
+    searchCacheTtlSeconds: parseInt(process.env.SEARCH_CACHE_TTL || '300', 10),
+    cleanupIntervalMs: parseInt(process.env.CLEANUP_INTERVAL_MS || '600000', 10),
   },
 
   // MQTT
