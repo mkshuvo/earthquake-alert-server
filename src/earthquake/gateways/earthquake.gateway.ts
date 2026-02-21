@@ -10,11 +10,22 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { EarthquakeEvent } from '../schemas/earthquake.schema';
 
 @WebSocketGateway({
   cors: {
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    origin: (requestOrigin, callback) => {
+      const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3000')
+        .split(',')
+        .map((s) => s.trim());
+      
+      if (!requestOrigin || allowedOrigins.includes(requestOrigin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
   },
 })
@@ -26,8 +37,11 @@ export class EarthquakeGateway
 
   private logger = new Logger('EarthquakeGateway');
 
-  afterInit(): void {
-    this.logger.log('WebSocket Gateway initialized');
+  constructor(private configService: ConfigService) {}
+
+  afterInit(server: Server): void {
+    const corsOrigin = this.configService.get('app.corsOrigin');
+    this.logger.log(`WebSocket Gateway initialized with CORS origins: ${JSON.stringify(corsOrigin)}`);
   }
 
   handleConnection(client: Socket): void {

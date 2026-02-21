@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
+import { ConfigModule } from '@nestjs/config';
 import { EarthquakeSchema } from './schemas/earthquake.schema';
 import { EarthquakeService } from './earthquake.service';
 import { EarthquakeController } from './earthquake.controller';
@@ -8,6 +9,7 @@ import { CommonModule } from '../common/common.module';
 
 @Module({
   imports: [
+    ConfigModule,
     MongooseModule.forFeature([
       { name: 'Earthquake', schema: EarthquakeSchema },
     ]),
