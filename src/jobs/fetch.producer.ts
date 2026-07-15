@@ -29,7 +29,8 @@ export class FetchProducer implements OnModuleInit {
         repeat: {
           every: 30000, // 30 seconds
         },
-        removeOnComplete: true,
+        removeOnComplete: { age: 600, count: 1000 },
+        removeOnFail: { age: 24 * 3600, count: 500 },
       },
     );
 
@@ -41,7 +42,8 @@ export class FetchProducer implements OnModuleInit {
         repeat: {
           every: 5 * 60 * 1000,
         },
-        removeOnComplete: true,
+        removeOnComplete: { age: 600, count: 1000 },
+        removeOnFail: { age: 24 * 3600, count: 500 },
       },
     );
 
@@ -53,7 +55,8 @@ export class FetchProducer implements OnModuleInit {
         repeat: {
           every: 15 * 60 * 1000,
         },
-        removeOnComplete: true,
+        removeOnComplete: { age: 600, count: 1000 },
+        removeOnFail: { age: 24 * 3600, count: 500 },
       },
     );
   }

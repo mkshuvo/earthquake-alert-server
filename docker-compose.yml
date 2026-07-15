@@ -4,12 +4,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    restart: unless-stopped
     ports:
       - "51763:6000"
     depends_on:
-      - mongo
-      - dragonfly
-      - mqtt
+      mongo:
+        condition: service_healthy
+      dragonfly:
+        condition: service_healthy
     networks:
       - earthquake_network
     environment:
@@ -31,6 +33,7 @@ services:
   mongo:
     container_name: ea-mongodb
     image: "mongo:7.0.2"
+    restart: unless-stopped
     ports:
       - "43982:27017"
     environment:
@@ -40,10 +43,16 @@ services:
       - earthquake_network
     volumes:
       - mongodb_data:/data/db:Z
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1}).ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   dragonfly:
     container_name: ea-dragonfly
     image: docker.dragonflydb.io/dragonflydb/dragonfly:v1.27.1
+    restart: unless-stopped
     ports:
       - "6379:6379"
     networks:
@@ -71,10 +80,12 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 20s
 
   mqtt:
     container_name: ea-emqx
     image: "emqx/emqx:5.0.0"
+    restart: unless-stopped
     ports:
       - "45329:1883" # MQTT (internal)
       - "47754:8883" # MQTT TLS (external)
@@ -96,6 +107,7 @@ services:
   rabbitmq:
     container_name: rabbitmq
     image: rabbitmq:3-management
+    restart: unless-stopped
     hostname: rabbitmq
     ports:
       - "42107:5672"
@@ -105,6 +117,11 @@ services:
       RABBITMQ_DEFAULT_PASS: rabbit
     networks:
       - earthquake_network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 networks:
   earthquake_network:

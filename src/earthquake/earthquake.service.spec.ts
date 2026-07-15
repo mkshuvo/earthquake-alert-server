@@ -5,7 +5,7 @@ import { Earthquake } from './schemas/earthquake.schema';
 import { EarthquakeGateway } from './gateways/earthquake.gateway';
 import { ConfigService } from '@nestjs/config';
 import { MqttService } from '../common/services/mqtt.service';
-import { DRAGONFLY_CLIENT } from '../common/providers/dragonfly.provider';
+import { DRAGONFLY_APP_CLIENT } from '../common/providers/dragonfly-app-data.provider';
 
 const mockPipeline = {
   set: jest.fn().mockReturnThis(),
@@ -19,7 +19,11 @@ const mockDragonflyInstance = {
   set: jest.fn(),
   mget: jest.fn(),
   zrevrange: jest.fn(),
+  zrange: jest.fn(),
   zremrangebyscore: jest.fn().mockResolvedValue(0),
+  zrem: jest.fn(),
+  exists: jest.fn().mockResolvedValue(0),
+  ping: jest.fn().mockResolvedValue('PONG'),
   pipeline: jest.fn().mockReturnValue(mockPipeline),
   status: 'ready',
 };
@@ -86,7 +90,7 @@ describe('EarthquakeService', () => {
           useValue: mockMqttService,
         },
         {
-          provide: DRAGONFLY_CLIENT,
+          provide: DRAGONFLY_APP_CLIENT,
           useValue: mockDragonflyInstance,
         },
       ],
@@ -171,9 +175,10 @@ describe('EarthquakeService', () => {
   });
 
   describe('getHealthCheck', () => {
-    it('should report dragonfly as connected when status is ready', async () => {
+    it('should report dragonfly as connected when ping returns PONG', async () => {
       const result = await service.getHealthCheck();
       expect(result.details.dragonfly).toBe('connected');
+      expect(result.details.dragonflyLatencyMs).toBeGreaterThanOrEqual(0);
     });
   });
 });

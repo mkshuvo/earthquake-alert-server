@@ -34,6 +34,11 @@ export default registerAs('app', () => ({
   dragonfly: {
     host: process.env.DRAGONFLY_HOST || process.env.REDIS_HOST || 'localhost',
     port: parseInt(process.env.DRAGONFLY_PORT || process.env.REDIS_PORT || '6379', 10),
+    // App-data client knobs (BullMQ side keeps `maxRetriesPerRequest: null`
+    // and is not affected by these).
+    commandTimeoutMs: parseInt(process.env.DRAGONFLY_COMMAND_TIMEOUT_MS || '500', 10),
+    connectTimeoutMs: parseInt(process.env.DRAGONFLY_CONNECT_TIMEOUT_MS || '1000', 10),
+    maxRetriesPerRequest: parseInt(process.env.DRAGONFLY_MAX_RETRIES || '2', 10),
   },
 
   // Data Retention (RAM cleanup)
@@ -42,6 +47,8 @@ export default registerAs('app', () => ({
     earthquakeDataTtlSeconds: parseInt(process.env.EARTHQUAKE_DATA_TTL || '86400', 10),
     searchCacheTtlSeconds: parseInt(process.env.SEARCH_CACHE_TTL || '300', 10),
     cleanupIntervalMs: parseInt(process.env.CLEANUP_INTERVAL_MS || '600000', 10),
+    warmerLookbackMs: parseInt(process.env.WARMER_LOOKBACK_MS || '86400000', 10),
+    warmerIntervalMs: parseInt(process.env.WARMER_INTERVAL_MS || '300000', 10),
   },
 
   // MQTT

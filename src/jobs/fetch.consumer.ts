@@ -36,7 +36,8 @@ export class FetchConsumer extends WorkerHost {
             `Significant earthquake detected: ${earthquake.id} (${earthquake.magnitude}M). Scheduling alert.`,
           );
           await this.alertQueue.add('send-alert', earthquake, {
-            removeOnComplete: true,
+            removeOnComplete: { age: 600, count: 1000 },
+            removeOnFail: { age: 24 * 3600, count: 500 },
             attempts: 3,
             backoff: {
               type: 'exponential',
