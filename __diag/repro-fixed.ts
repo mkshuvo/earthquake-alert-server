@@ -1,17 +1,17 @@
 // Integration test: verify the new EarthquakeService end-to-end against
 // a real Redis (run via `wsl -d kali-linux -- redis-server`).
-// This is what the production code does now:
 //
 //   1. ZSET score = write time (NOT earthquake time)
 //   2. Cleanup = drop entries with no data key + cap at 2x TTL
 //   3. Warmer = rebuilds cache from MongoDB on boot and every 5 min
 //   4. App-data client has bounded retries + commandTimeout
 //
-// Run: node __diag/repro-fixed.js
+// Run:  npx tsx __diag/repro-fixed.ts
 
-const Redis = require('ioredis');
+import Redis from 'ioredis';
+import { execSync } from 'child_process';
 
-function safe() {
+function safe(): Redis {
   return new Redis({
     host: '127.0.0.1',
     port: 6379,
@@ -19,40 +19,37 @@ function safe() {
     commandTimeout: 500,
     connectTimeout: 1000,
     enableOfflineQueue: false,
-    retryStrategy: (t) => Math.min(t * 200, 5000),
-  });
-}
-function bull() {
-  return new Redis({
-    host: '127.0.0.1',
-    port: 6379,
-    maxRetriesPerRequest: null,
-    retryStrategy: (t) => Math.min(t * 200, 5000),
+    retryStrategy: (t: number) => Math.min(t * 200, 5000),
   });
 }
 
-(async () => {
-  // Wipe and start
-  const { execSync } = require('child_process');
-  try { execSync('wsl -d kali-linux -- bash -c "redis-cli shutdown nosave 2>&1 || true"'); } catch (_) {}
+function restartRedis(): void {
+  try {
+    execSync('wsl -d kali-linux -- bash -c "redis-cli shutdown nosave 2>&1 || true"');
+  } catch {
+    /* ignore */
+  }
+}
+
+async function main(): Promise<void> {
+  restartRedis();
   await new Promise((r) => setTimeout(r, 500));
-  execSync('wsl -d kali-linux -- bash -c "redis-server --daemonize yes --port 6379 --maxmemory 512mb --maxmemory-policy allkeys-lru --save \'\'"');
+  execSync(
+    'wsl -d kali-linux -- bash -c "redis-server --daemonize yes --port 6379 --maxmemory 512mb --maxmemory-policy allkeys-lru --save \'\'"',
+  );
   await new Promise((r) => setTimeout(r, 1000));
 
   const c = safe();
-  await new Promise((r) => c.once('ready', r));
+  await new Promise<void>((r) => c.once('ready', r));
 
   // 1) Confirm clean state
   await c.flushall();
   console.log('\n--- 1. ZSET SCORE = WRITE TIME, NOT QUAKE TIME ---');
   const now = Date.now();
-  const recent = now - 60*60*1000;        // quake 1h ago
-  const old5d  = now - 5*24*60*60*1000;  // quake 5d ago
-  const old30d = now - 30*24*60*60*1000; // quake 30d ago
 
   // Simulate the NEW saveToDragonfly: write-time score, 24h TTL on data
   await c.zadd('eq:ids:bytime', now, 'eq_recent');
-  await c.zadd('eq:ids:bytime', now, 'eq_old_5d');  // same write time
+  await c.zadd('eq:ids:bytime', now, 'eq_old_5d'); // same write time
   await c.zadd('eq:ids:bytime', now, 'eq_old_30d');
   await c.set('eq:data:eq_recent', '{"mag":3.5}', 'EX', 86400);
   await c.set('eq:data:eq_old_5d', '{"mag":6.1}', 'EX', 86400);
@@ -74,11 +71,11 @@ function bull() {
   const allIds = await c.zrange('eq:ids:bytime', 0, -1);
   const keys = allIds.map((id) => 'eq:data:' + id);
   const flags = await c.exists(...keys);
-  const arr = Array.isArray(flags) ? flags : [Number(flags)];
+  const arr: number[] = Array.isArray(flags) ? flags : [Number(flags)];
   let removed = 0;
   for (let i = 0; i < allIds.length; i++) {
-    if (arr[i] === 0) {
-      await c.zrem('eq:ids:bytime', allIds[i]);
+    if (arr[i] === 0 && allIds[i]) {
+      await c.zrem('eq:ids:bytime', allIds[i] as string);
       removed++;
     }
   }
@@ -86,7 +83,6 @@ function bull() {
   console.log('  ZSET after lazy cleanup:', await c.zrange('eq:ids:bytime', 0, -1));
 
   console.log('\n--- 2. CACHE HIT / MISS OBSERVABILITY ---');
-  // Reset and populate
   await c.flushall();
   await c.zadd('eq:ids:bytime', now, 'a');
   await c.zadd('eq:ids:bytime', now, 'b');
@@ -95,18 +91,16 @@ function bull() {
   await c.set('eq:data:b', '{}', 'EX', 86400);
   // c has no data key (simulate eviction)
 
-  // Read like findAll does
   const ids = await c.zrevrange('eq:ids:bytime', 0, 99);
   const dataKeys = ids.map((id) => 'eq:data:' + id);
   const data = await c.mget(...dataKeys);
-  const valid = data.filter((x) => x != null);
+  const valid = (data ?? []).filter((x): x is string => x != null);
   console.log('  ids:', ids, 'valid:', valid.length);
   console.log('  >>> Falls back to MongoDB (or in this test, just logs incomplete).');
   console.log('  >>> The OLD code would have returned `valid` (length 2) as if it was the full set.');
   console.log('  >>> The NEW code requires valid.length === ids.length, so it cleanly bails to MongoDB.');
 
   console.log('\n--- 3. STABLE CACHE KEY (key ordering independent) ---');
-  // Old code: search:${JSON.stringify(query)}
   const q1 = { q: 'japan', page: 1, limit: 20 };
   const q2 = { page: 1, limit: 20, q: 'japan' };
   const oldKey1 = 'search:' + JSON.stringify(q1);
@@ -115,10 +109,11 @@ function bull() {
   console.log('  OLD key for {page,1,limit,20,q,japan}:', oldKey2);
   console.log('  OLD same?', oldKey1 === oldKey2, '(expected: false — cache miss for same query)');
 
-  // New code: sort keys before stringify
-  const sortNorm = (q) => {
-    const keys = Object.keys(q).filter((k) => q[k] !== undefined).sort();
-    const n = {};
+  const sortNorm = (q: Record<string, unknown>): string => {
+    const keys = Object.keys(q)
+      .filter((k) => q[k] !== undefined)
+      .sort();
+    const n: Record<string, unknown> = {};
     for (const k of keys) n[k] = q[k];
     return 'search:' + JSON.stringify(n);
   };
@@ -128,24 +123,34 @@ function bull() {
   console.log('  NEW same?', newKey1 === newKey2, '(expected: true — cache hit)');
 
   console.log('\n--- 4. BOUNDED LATENCY ON OUTAGE ---');
-  // Make sure the WSL redis is up, then kill it and time a SET.
+  try {
+    execSync('wsl -d kali-linux -- bash -c "redis-cli shutdown nosave 2>&1 || true"');
+  } catch {
+    /* ignore */
+  }
+  await new Promise((r) => setTimeout(r, 1500));
   console.log('  calling SET on a dead redis with the SAFE client...');
   const t0 = Date.now();
   try {
     await c.set('probe', 'x');
     console.log('  unexpected: call returned in', Date.now() - t0, 'ms');
   } catch (e) {
-    console.log('  failed fast in', Date.now() - t0, 'ms:', e.message.split('\n')[0]);
+    const msg = e instanceof Error ? e.message.split('\n')[0] : String(e);
+    console.log('  failed fast in', Date.now() - t0, 'ms:', msg);
   }
   c.disconnect();
 
-  // Bring redis back so the rest of the test environment is healthy
-  try { execSync('wsl -d kali-linux -- bash -c "redis-cli ping >/dev/null 2>&1 || (redis-server --daemonize yes --port 6379 --maxmemory 512mb --maxmemory-policy allkeys-lru --save \'\')"'); } catch (_) {}
+  try {
+    execSync(
+      'wsl -d kali-linux -- bash -c "redis-server --daemonize yes --port 6379 --maxmemory 512mb --maxmemory-policy allkeys-lru --save \'\'"',
+    );
+  } catch {
+    /* ignore */
+  }
 
   console.log('\n--- 5. WARMER PATTERN ---');
   const c2 = safe();
-  await new Promise((r) => c2.once('ready', r));
-  // Simulate an empty cache, then a warmer that writes 3 entries
+  await new Promise<void>((r) => c2.once('ready', r));
   await c2.flushall();
   const warmerIds = ['w1', 'w2', 'w3'];
   const pipeline = c2.pipeline();
@@ -155,11 +160,19 @@ function bull() {
   }
   await pipeline.exec();
   console.log('  after warmer, ZSET:', await c2.zrange('eq:ids:bytime', 0, -1));
-  console.log('  data keys:', await Promise.all(warmerIds.map((id) => c2.exists('eq:data:' + id))));
+  const existsResults = await Promise.all(
+    warmerIds.map((id) => c2.exists('eq:data:' + id)),
+  );
+  console.log('  data keys:', existsResults);
   console.log('  >>> On every server boot the warmer fires once. Every 5 min after that.');
   console.log('  >>> So even if Dragonfly is down for an hour, the cache self-heals.');
   c2.disconnect();
 
   console.log('\nALL CHECKS PASSED');
   process.exit(0);
-})().catch((e) => { console.error(e); process.exit(1); });
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
