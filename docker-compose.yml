@@ -64,7 +64,6 @@ services:
     command: >
       dragonfly
       --maxmemory=2gb
-      --maxmemory_policy=noeviction
       --hz=100
       --tcp_nodelay=true
       --default_lua_flags=allow-undeclared-keys
