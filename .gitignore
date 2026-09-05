@@ -3,6 +3,7 @@
 /node_modules
 /mongo_data
 /redis_data
+/dragonfly_data
 /rabbitmq_data
 /emqx_data
 /emqx_logs
